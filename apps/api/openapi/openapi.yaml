@@ -1,0 +1,1208 @@
+openapi: 3.1.0
+info:
+  title: JainConnect API
+  version: 0.1.0
+  description: Initial versioned API contract for the JainConnect foundation.
+servers:
+  - url: /api/v1
+paths:
+  /auth/register:
+    post:
+      operationId: registerAccount
+      summary: Create a member account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationInput'
+      responses:
+        '201':
+          description: Account created. No session or password is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid account details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email is already registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/login:
+    post:
+      operationId: loginAccount
+      summary: Start an opaque bearer session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginInput'
+      responses:
+        '200':
+          description: Session token and public account details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Credentials are invalid or the account is not active.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/me:
+    get:
+      operationId: getCurrentAccount
+      summary: Get the current authenticated account
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current account details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Missing, expired, or revoked session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/logout:
+    post:
+      operationId: logoutAccount
+      summary: Revoke the current bearer session
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Session revoked.
+        '401':
+          description: Missing, expired, or revoked session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/access:
+    get:
+      operationId: getAdminAccess
+      summary: Check whether the current account has a reviewed admin role
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Active admin role keys for the current account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAccessResponse'
+        '401':
+          description: Missing, expired, or revoked session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated account has no admin role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/temples:
+    get:
+      operationId: listAdminTemples
+      summary: List temple records for authorized staff
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VerificationStatus'
+        - $ref: '#/components/parameters/PublicationStatus'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Paginated administrative temple records.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTempleListResponse'
+        '401':
+          description: Authentication is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: The account has no administrative role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createAdminTemple
+      summary: Create a pending temple record
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminTempleInput'
+      responses:
+        '201':
+          description: Pending temple created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTempleResponse'
+        '400':
+          description: Invalid temple details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: The account cannot edit content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/temples/{id}:
+    patch:
+      operationId: updateAdminTemple
+      summary: Edit a temple record without changing its review state
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminTemplePatch'
+      responses:
+        '200':
+          description: Updated temple record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTempleResponse'
+        '400':
+          description: Invalid ID or temple details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Temple not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/temples/{id}/verification:
+    post:
+      operationId: reviewAdminTemple
+      summary: Record a temple verification decision
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationInput'
+      responses:
+        '200':
+          description: Updated temple review state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTempleResponse'
+        '400':
+          description: Invalid review input or ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Temple not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: The requested state transition is not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/temples/{id}/publication:
+    post:
+      operationId: setAdminTemplePublication
+      summary: Change a temple publication state
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicationInput'
+      responses:
+        '200':
+          description: Updated temple publication state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTempleResponse'
+        '400':
+          description: Invalid publication input or ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Unverified temples cannot be published.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/organizations:
+    get:
+      operationId: listAdminOrganizations
+      summary: List organization records for authorized staff
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VerificationStatus'
+        - $ref: '#/components/parameters/PublicationStatus'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Paginated administrative organization records.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrganizationListResponse'
+    post:
+      operationId: createAdminOrganization
+      summary: Create a pending organization record
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminOrganizationInput'
+      responses:
+        '201':
+          description: Pending organization created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrganizationResponse'
+  /admin/organizations/{id}:
+    patch:
+      operationId: updateAdminOrganization
+      summary: Edit an organization record without changing its review state
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminOrganizationPatch'
+      responses:
+        '200':
+          description: Updated organization record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrganizationResponse'
+        '400':
+          description: Invalid ID or organization details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Organization not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/organizations/{id}/verification:
+    post:
+      operationId: reviewAdminOrganization
+      summary: Record an organization verification decision
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationInput'
+      responses:
+        '200':
+          description: Updated organization review state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrganizationResponse'
+        '409':
+          description: The requested state transition is not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/audit:
+    get:
+      operationId: listAdminAuditEvents
+      summary: List redacted administrative audit events
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/AuditPageSize'
+      responses:
+        '200':
+          description: Paginated audit events without private review evidence.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditListResponse'
+  /admin/reports:
+    get:
+      operationId: listAdminReports
+      summary: List community reports for moderators
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ReportStatus'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/AuditPageSize'
+      responses:
+        '200':
+          description: Paginated reports.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportListResponse'
+  /admin/reports/{id}:
+    patch:
+      operationId: updateAdminReport
+      summary: Moderate a community report
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportUpdateInput'
+      responses:
+        '200':
+          description: Updated report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
+        '404':
+          description: Report not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /reports/temples/{id}:
+    post:
+      operationId: createTempleReport
+      summary: Submit a report about a temple
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportInput'
+      responses:
+        '201':
+          description: Report created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportCreatedResponse'
+        '400':
+          description: Invalid report details or ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Temple not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /health/live:
+    get:
+      operationId: getLiveness
+      summary: Check whether the API process is running
+      responses:
+        '200':
+          description: The process is accepting requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveResponse'
+  /health/ready:
+    get:
+      operationId: getReadiness
+      summary: Check whether required runtime dependencies are available
+      responses:
+        '200':
+          description: The API and database are ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+        '503':
+          description: A required dependency is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /temples:
+    get:
+      operationId: listPublicTemples
+      summary: List approved public temple records
+      parameters:
+        - $ref: '#/components/parameters/SearchQuery'
+        - $ref: '#/components/parameters/City'
+        - $ref: '#/components/parameters/State'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A paginated list of verified and published temples.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TempleListResponse'
+        '400':
+          description: Invalid search filters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /temples/{slug}:
+    get:
+      operationId: getPublicTemple
+      summary: Get one approved public temple record
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+      responses:
+        '200':
+          description: A verified and published temple.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TempleResponse'
+        '404':
+          description: The approved public temple does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+  parameters:
+    SearchQuery:
+      name: q
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+    City:
+      name: city
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 120
+    State:
+      name: state
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 120
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+    AuditPageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 25
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    VerificationStatus:
+      name: verificationStatus
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/VerificationStatus'
+    PublicationStatus:
+      name: publicationStatus
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/PublicationStatus'
+  schemas:
+    RegistrationInput:
+      type: object
+      additionalProperties: false
+      required: [email, displayName, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 120
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+    LoginInput:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+    User:
+      type: object
+      required: [id, email, displayName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: [string, 'null']
+          format: email
+        displayName:
+          type: string
+    UserResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [user]
+          properties:
+            user:
+              $ref: '#/components/schemas/User'
+    LoginResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [accessToken, expiresAt, user]
+          properties:
+            accessToken:
+              type: string
+              description: Opaque bearer token. Store only in platform-protected client storage.
+            expiresAt:
+              type: string
+              format: date-time
+            user:
+              $ref: '#/components/schemas/User'
+    AdminAccessResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [roles]
+          properties:
+            roles:
+              type: array
+            items:
+              type: string
+    VerificationStatus:
+      type: string
+      enum: [PENDING, VERIFIED, REJECTED, SUSPENDED, NEEDS_REVIEW]
+    PublicationStatus:
+      type: string
+      enum: [DRAFT, PUBLISHED, UNPUBLISHED, ARCHIVED]
+    OrganizationType:
+      type: string
+      enum: [TEMPLE_TRUST, COMMUNITY_GROUP, CHARITY, OTHER]
+    ReportStatus:
+      type: string
+      enum: [OPEN, IN_REVIEW, ACTIONED, DISMISSED]
+    VerificationInput:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/VerificationStatus'
+        notes:
+          type: string
+          maxLength: 2000
+          description: Private reviewer note. Never returned by public endpoints.
+    PublicationInput:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/PublicationStatus'
+    AdminTempleFields:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 200
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 180
+        organizationId:
+          type: [string, 'null']
+          format: uuid
+        traditionOrLineage:
+          type: [string, 'null']
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        history:
+          type: [string, 'null']
+          maxLength: 8000
+        addressLine1:
+          type: [string, 'null']
+          maxLength: 250
+        addressLine2:
+          type: [string, 'null']
+          maxLength: 250
+        city:
+          type: [string, 'null']
+          maxLength: 120
+        state:
+          type: [string, 'null']
+          maxLength: 120
+        postalCode:
+          type: [string, 'null']
+          maxLength: 20
+        country:
+          type: [string, 'null']
+          maxLength: 120
+        timezone:
+          type: [string, 'null']
+          maxLength: 64
+        publicEmail:
+          type: [string, 'null']
+          format: email
+        publicPhone:
+          type: [string, 'null']
+          maxLength: 32
+        websiteUrl:
+          type: [string, 'null']
+          format: uri
+        darshanInformation:
+          type: [string, 'null']
+          maxLength: 4000
+    AdminTempleInput:
+      allOf:
+        - $ref: '#/components/schemas/AdminTempleFields'
+        - type: object
+          required: [name, slug]
+    AdminTemplePatch:
+      $ref: '#/components/schemas/AdminTempleFields'
+    AdminTemple:
+      type: object
+      required: [id, name, slug, verificationStatus, publicationStatus]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        city:
+          type: [string, 'null']
+        state:
+          type: [string, 'null']
+        verificationStatus:
+          $ref: '#/components/schemas/VerificationStatus'
+        publicationStatus:
+          $ref: '#/components/schemas/PublicationStatus'
+        verifiedAt:
+          type: [string, 'null']
+          format: date-time
+        lastReviewedAt:
+          type: [string, 'null']
+          format: date-time
+    AdminTempleResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AdminTemple'
+    AdminTempleListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminTemple'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    AdminOrganizationInput:
+      type: object
+      additionalProperties: false
+      required: [name, slug, organizationType]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 200
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 180
+        organizationType:
+          $ref: '#/components/schemas/OrganizationType'
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        publicEmail:
+          type: [string, 'null']
+          format: email
+        publicPhone:
+          type: [string, 'null']
+          maxLength: 32
+        websiteUrl:
+          type: [string, 'null']
+          format: uri
+        city:
+          type: [string, 'null']
+          maxLength: 120
+        state:
+          type: [string, 'null']
+          maxLength: 120
+        country:
+          type: [string, 'null']
+          maxLength: 120
+    AdminOrganizationPatch:
+      type: object
+      additionalProperties: false
+      description: Any subset of AdminOrganizationInput fields. Review and publication state are server-controlled.
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 200
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 180
+        organizationType:
+          $ref: '#/components/schemas/OrganizationType'
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        publicEmail:
+          type: [string, 'null']
+          format: email
+        publicPhone:
+          type: [string, 'null']
+          maxLength: 32
+        websiteUrl:
+          type: [string, 'null']
+          format: uri
+        addressLine1:
+          type: [string, 'null']
+          maxLength: 250
+        addressLine2:
+          type: [string, 'null']
+          maxLength: 250
+        city:
+          type: [string, 'null']
+          maxLength: 120
+        state:
+          type: [string, 'null']
+          maxLength: 120
+        postalCode:
+          type: [string, 'null']
+          maxLength: 20
+        country:
+          type: [string, 'null']
+          maxLength: 120
+    AdminOrganization:
+      type: object
+      required: [id, name, slug, organizationType, verificationStatus, publicationStatus]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        organizationType:
+          $ref: '#/components/schemas/OrganizationType'
+        verificationStatus:
+          $ref: '#/components/schemas/VerificationStatus'
+        publicationStatus:
+          $ref: '#/components/schemas/PublicationStatus'
+        verifiedAt:
+          type: [string, 'null']
+          format: date-time
+    AdminOrganizationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AdminOrganization'
+    AdminOrganizationListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrganization'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    AuditEvent:
+      type: object
+      required: [id, action, targetType, summary, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        action:
+          type: string
+        targetType:
+          type: string
+        targetId:
+          type: [string, 'null']
+          format: uuid
+        summary:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    AuditListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    ReportInput:
+      type: object
+      additionalProperties: false
+      required: [reasonCode, description]
+      properties:
+        reasonCode:
+          type: string
+          minLength: 2
+          maxLength: 64
+        description:
+          type: string
+          minLength: 10
+          maxLength: 2000
+    ReportUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/ReportStatus'
+        resolutionCode:
+          type: string
+          maxLength: 64
+        moderatorNotes:
+          type: string
+          maxLength: 2000
+    Report:
+      type: object
+      required: [id, reasonCode, description, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        reasonCode:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/ReportStatus'
+        resolutionCode:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+    ReportResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Report'
+    ReportCreatedResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [id, status]
+          properties:
+            id:
+              type: string
+              format: uuid
+            status:
+              $ref: '#/components/schemas/ReportStatus'
+    ReportListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Report'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    Pagination:
+      type: object
+      required: [page, pageSize, total, totalPages]
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+    LiveResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [status, service]
+          properties:
+            status:
+              type: string
+              const: ok
+            service:
+              type: string
+              const: jainconnect-api
+    ReadyResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [status, service, dependencies]
+          properties:
+            status:
+              type: string
+              const: ok
+            service:
+              type: string
+              const: jainconnect-api
+            dependencies:
+              type: object
+              required: [database]
+              properties:
+                database:
+                  type: string
+                  const: ok
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            requestId:
+              type: string
+    Temple:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - verificationStatus
+        - lastReviewedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        traditionOrLineage:
+          type: [string, 'null']
+        description:
+          type: [string, 'null']
+        history:
+          type: [string, 'null']
+        addressLine1:
+          type: [string, 'null']
+        addressLine2:
+          type: [string, 'null']
+        city:
+          type: [string, 'null']
+        state:
+          type: [string, 'null']
+        postalCode:
+          type: [string, 'null']
+        country:
+          type: [string, 'null']
+        timezone:
+          type: [string, 'null']
+        publicEmail:
+          type: [string, 'null']
+        publicPhone:
+          type: [string, 'null']
+        websiteUrl:
+          type: [string, 'null']
+          format: uri
+        darshanInformation:
+          type: [string, 'null']
+        verificationStatus:
+          type: string
+          const: VERIFIED
+        lastReviewedAt:
+          type: [string, 'null']
+          format: date-time
+    TempleResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Temple'
+    TempleListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Temple'
+        pagination:
+          type: object
+          required: [page, pageSize, total, totalPages]
+          properties:
+            page:
+              type: integer
+            pageSize:
+              type: integer
+            total:
+              type: integer
+            totalPages:
+              type: integer

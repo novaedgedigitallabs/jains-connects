@@ -1,0 +1,293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DELETION_REQUESTED
+  DELETED
+}
+
+enum ProfileVisibility {
+  PRIVATE
+  COMMUNITY
+  PUBLIC
+}
+
+enum ConsentPurpose {
+  BLOOD_DONOR_LISTING
+  CONTACT_SHARING
+  NOTIFICATIONS
+  ANALYTICS
+}
+
+enum ConsentStatus {
+  GRANTED
+  WITHDRAWN
+}
+
+enum OrganizationType {
+  TEMPLE_TRUST
+  COMMUNITY_GROUP
+  CHARITY
+  OTHER
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  SUSPENDED
+  NEEDS_REVIEW
+}
+
+enum PublicationStatus {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+  ARCHIVED
+}
+
+enum VerificationReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+  NEEDS_MORE_INFO
+}
+
+enum ReportStatus {
+  OPEN
+  IN_REVIEW
+  ACTIONED
+  DISMISSED
+}
+
+model User {
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String?         @unique @db.VarChar(320)
+  emailNormalized  String?         @unique @db.VarChar(320)
+  passwordHash     String?         @db.VarChar(255)
+  displayName      String          @db.VarChar(120)
+  status           UserStatus      @default(PENDING)
+  emailVerifiedAt  DateTime?       @db.Timestamptz(6)
+  lastLoginAt      DateTime?       @db.Timestamptz(6)
+  createdAt        DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime        @updatedAt @db.Timestamptz(6)
+  deletedAt        DateTime?       @db.Timestamptz(6)
+  profile          UserProfile?
+  roles            UserRole[]      @relation("UserRoleUser")
+  roleAssignments  UserRole[]      @relation("RoleAssigner")
+  consents         ConsentRecord[]
+  auditEvents      AuditEvent[]    @relation("AuditActor")
+  createdOrganizations Organization[] @relation("OrganizationCreator")
+  sessions         Session[]
+  submittedReviews VerificationReview[] @relation("ReviewSubmitter")
+  reviewedReviews  VerificationReview[] @relation("ReviewReviewer")
+  reports          Report[]             @relation("ReportReporter")
+  assignedReports  Report[]             @relation("ReportAssignee")
+
+  @@index([status, createdAt])
+}
+
+model UserProfile {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String            @unique @db.Uuid
+  displayName String?           @db.VarChar(120)
+  city        String?           @db.VarChar(120)
+  state       String?           @db.VarChar(120)
+  country     String?           @db.VarChar(120)
+  bio         String?           @db.VarChar(2000)
+  visibility  ProfileVisibility @default(PRIVATE)
+  createdAt   DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime          @updatedAt @db.Timestamptz(6)
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique @db.VarChar(128)
+  expiresAt DateTime  @db.Timestamptz(6)
+  revokedAt DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  lastUsedAt DateTime? @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
+}
+
+model Role {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key         String     @unique @db.VarChar(64)
+  displayName String     @db.VarChar(120)
+  description String?    @db.VarChar(500)
+  createdAt   DateTime   @default(now()) @db.Timestamptz(6)
+  assignments UserRole[]
+}
+
+model UserRole {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @db.Uuid
+  roleId       String    @db.Uuid
+  assignedById String?   @db.Uuid
+  assignedAt   DateTime  @default(now()) @db.Timestamptz(6)
+  revokedAt    DateTime? @db.Timestamptz(6)
+  user         User      @relation("UserRoleUser", fields: [userId], references: [id], onDelete: Cascade)
+  role         Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedBy   User?     @relation("RoleAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, roleId])
+  @@index([userId, revokedAt])
+  @@index([roleId, revokedAt])
+}
+
+model ConsentRecord {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String         @db.Uuid
+  purpose       ConsentPurpose
+  policyVersion String         @db.VarChar(32)
+  status        ConsentStatus
+  source        String         @db.VarChar(32)
+  grantedAt     DateTime       @default(now()) @db.Timestamptz(6)
+  withdrawnAt   DateTime?      @db.Timestamptz(6)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, status])
+}
+
+model AuditEvent {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorUserId String?   @db.Uuid
+  action      String    @db.VarChar(120)
+  targetType  String    @db.VarChar(80)
+  targetId    String?   @db.VarChar(128)
+  summary     String    @db.VarChar(1000)
+  requestId   String?   @db.VarChar(128)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  actorUser   User?     @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([action, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model Organization {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name               String             @db.VarChar(200)
+  slug               String             @unique @db.VarChar(180)
+  organizationType   OrganizationType
+  description        String?            @db.VarChar(4000)
+  publicEmail        String?            @db.VarChar(320)
+  publicPhone        String?            @db.VarChar(32)
+  websiteUrl         String?            @db.VarChar(2048)
+  addressLine1       String?            @db.VarChar(250)
+  addressLine2       String?            @db.VarChar(250)
+  city               String?            @db.VarChar(120)
+  state              String?            @db.VarChar(120)
+  postalCode         String?            @db.VarChar(20)
+  country            String?            @db.VarChar(120)
+  verificationStatus VerificationStatus @default(PENDING)
+  publicationStatus  PublicationStatus  @default(DRAFT)
+  verifiedAt         DateTime?          @db.Timestamptz(6)
+  lastReviewedAt     DateTime?          @db.Timestamptz(6)
+  createdById        String?            @db.Uuid
+  createdAt          DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime           @updatedAt @db.Timestamptz(6)
+  creator            User?              @relation("OrganizationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  temples            Temple[]
+  verificationReviews VerificationReview[]
+  reports             Report[]
+
+  @@index([publicationStatus, verificationStatus])
+  @@index([city, state])
+}
+
+model Temple {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId     String?            @db.Uuid
+  name               String             @db.VarChar(200)
+  slug               String             @unique @db.VarChar(180)
+  traditionOrLineage String?            @db.VarChar(200)
+  description        String?            @db.VarChar(4000)
+  history            String?            @db.VarChar(8000)
+  addressLine1       String?            @db.VarChar(250)
+  addressLine2       String?            @db.VarChar(250)
+  city               String?            @db.VarChar(120)
+  state              String?            @db.VarChar(120)
+  postalCode         String?            @db.VarChar(20)
+  country            String?            @db.VarChar(120)
+  timezone           String?            @db.VarChar(64)
+  publicEmail        String?            @db.VarChar(320)
+  publicPhone        String?            @db.VarChar(32)
+  websiteUrl         String?            @db.VarChar(2048)
+  darshanInformation String?            @db.VarChar(4000)
+  verificationStatus VerificationStatus @default(PENDING)
+  publicationStatus  PublicationStatus  @default(DRAFT)
+  verifiedAt         DateTime?          @db.Timestamptz(6)
+  lastReviewedAt     DateTime?          @db.Timestamptz(6)
+  createdAt          DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime           @updatedAt @db.Timestamptz(6)
+  organization       Organization?      @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  verificationReviews VerificationReview[]
+  reports             Report[]
+
+  @@index([publicationStatus, verificationStatus])
+  @@index([city, state])
+  @@index([organizationId])
+}
+
+model VerificationReview {
+  id             String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templeId       String?                  @db.Uuid
+  organizationId String?                  @db.Uuid
+  submittedById  String?                  @db.Uuid
+  reviewerId     String?                  @db.Uuid
+  status         VerificationReviewStatus @default(PENDING)
+  reviewNotes    String?                  @db.VarChar(2000)
+  submittedAt    DateTime                 @default(now()) @db.Timestamptz(6)
+  reviewedAt     DateTime?                @db.Timestamptz(6)
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime                 @updatedAt @db.Timestamptz(6)
+  temple         Temple?                  @relation(fields: [templeId], references: [id], onDelete: Cascade)
+  organization   Organization?            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  submittedBy    User?                    @relation("ReviewSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
+  reviewer       User?                    @relation("ReviewReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([templeId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([reviewerId, createdAt])
+}
+
+model Report {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reporterUserId String?      @db.Uuid
+  templeId       String?      @db.Uuid
+  organizationId String?      @db.Uuid
+  reasonCode     String       @db.VarChar(64)
+  description    String       @db.VarChar(2000)
+  status         ReportStatus @default(OPEN)
+  assignedToId   String?      @db.Uuid
+  resolutionCode String?      @db.VarChar(64)
+  moderatorNotes String?      @db.VarChar(2000)
+  resolvedAt     DateTime?    @db.Timestamptz(6)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(6)
+  reporter       User?        @relation("ReportReporter", fields: [reporterUserId], references: [id], onDelete: SetNull)
+  assignee       User?        @relation("ReportAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  temple         Temple?      @relation(fields: [templeId], references: [id], onDelete: Cascade)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([templeId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([assignedToId, status])
+}

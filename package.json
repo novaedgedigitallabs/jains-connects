@@ -1,0 +1,46 @@
+{
+  "name": "jainconnect",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=10"
+  },
+  "packageManager": "npm@11.17.0",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "api:build": "npm --workspace @jainconnect/api run build",
+    "api:dev": "npm --workspace @jainconnect/api run dev",
+    "api:lint": "npm --workspace @jainconnect/api run lint",
+    "api:test": "npm --workspace @jainconnect/api run test:run",
+    "api:typecheck": "npm --workspace @jainconnect/api run typecheck",
+    "web:build": "npm --workspace @jainconnect/web run build",
+    "web:dev": "npm --workspace @jainconnect/web run dev",
+    "web:lint": "npm --workspace @jainconnect/web run lint",
+    "web:test": "npm --workspace @jainconnect/web run test",
+    "web:typecheck": "npm --workspace @jainconnect/web run typecheck",
+    "build": "npm run api:build && npm run web:build",
+    "dev": "npm run api:dev",
+    "format": "prettier --write \"apps/{api,web}/**/*.{ts,tsx,js,mjs,json,yaml,yml}\" \".github/**/*.{yaml,yml}\" \"package.json\" \"tsconfig.json\" \"eslint.config.mjs\" \".prettierrc.json\"",
+    "format:check": "prettier --check \"apps/{api,web}/**/*.{ts,tsx,js,mjs,json,yaml,yml}\" \".github/**/*.{yaml,yml}\" \"package.json\" \"tsconfig.json\" \"eslint.config.mjs\" \".prettierrc.json\"",
+    "lint": "npm run api:lint && npm run web:lint",
+    "prisma:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
+    "prisma:validate": "prisma validate --schema apps/api/prisma/schema.prisma",
+    "db:migrate": "prisma migrate deploy --schema apps/api/prisma/schema.prisma",
+    "db:drift": "prisma migrate diff --from-schema-datasource apps/api/prisma/schema.prisma --to-schema-datamodel apps/api/prisma/schema.prisma --exit-code",
+    "test:integration": "npm --workspace @jainconnect/api run test:integration",
+    "test": "npm run api:test && npm run web:test",
+    "typecheck": "npm run api:typecheck && npm run web:typecheck"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.22.0",
+    "@next/eslint-plugin-next": "^15.2.0",
+    "eslint": "^9.22.0",
+    "prettier": "^3.5.3",
+    "typescript-eslint": "^8.26.0"
+  }
+}

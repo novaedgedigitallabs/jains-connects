@@ -62,7 +62,9 @@ a {
 
 a:focus-visible,
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: 3px solid var(--color-accent-700);
   outline-offset: 2px;
 }
@@ -175,6 +177,10 @@ p {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
+}
+
+.organization-search-form {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 190px) minmax(0, 190px) auto;
 }
 
 .field {
@@ -374,6 +380,109 @@ button:hover,
 
 .detail-list dd {
   margin: var(--space-1) 0 0;
+}
+
+.workflow-stack {
+  display: grid;
+  gap: var(--space-5);
+  margin-top: var(--space-8);
+}
+
+.workflow-panel {
+  max-width: 760px;
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-muted);
+}
+
+.workflow-panel h2 {
+  margin-bottom: var(--space-2);
+}
+
+.workflow-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-5) 0;
+}
+
+.workflow-tab {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border-color: var(--color-border-strong);
+  color: var(--color-brand-900);
+  background: var(--color-surface);
+  font-size: 13px;
+}
+
+.workflow-tab.active {
+  border-color: var(--color-brand-900);
+  color: var(--color-surface);
+  background: var(--color-brand-900);
+}
+
+.workflow-form {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.session-panel {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 760px;
+  margin: var(--space-6) 0;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.session-panel h2 {
+  margin-bottom: 0;
+  font-size: 23px;
+}
+
+.session-panel p {
+  margin-bottom: 0;
+}
+
+.session-panel .workflow-tabs {
+  margin: var(--space-2) 0;
+}
+
+.account-links {
+  margin-top: var(--space-8);
+}
+
+.proposed-changes {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.proposed-changes ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+}
+
+.detail-actions {
+  margin-top: var(--space-6);
+}
+
+.link-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.link-list li {
+  padding-left: var(--space-1);
+}
+
+.link-list .muted {
+  margin-left: var(--space-2);
 }
 
 .site-footer {
@@ -659,6 +768,10 @@ button:disabled {
   .pagination {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .workflow-panel {
+    padding: var(--space-5);
   }
 }
 

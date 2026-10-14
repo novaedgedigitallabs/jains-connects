@@ -4,20 +4,22 @@ JainConnect is a free, community-first platform for useful Jain community
 information and services. It is developed and maintained by NovaEdge Digital
 Labs.
 
-The repository contains the first backend foundation slice, a read-only public
-temple directory API, and the first protected verification/moderation slice.
-Sensitive blood-network and donation workflows remain deferred until their
-authorization, privacy, and operational controls are implemented and tested.
+The repository contains the backend foundation, public temple and organization
+directories, protected verification/moderation workflows, and authenticated
+representative/report/correction flows. Sensitive blood-network and donation
+workflows remain deferred until their authorization, privacy, and operational
+controls are implemented and tested.
 
 ## Repository status
 
 - `apps/api`: Node.js, Express, and TypeScript API foundation.
 - `apps/api/prisma`: initial PostgreSQL identity, consent, role, and audit
   schema.
-- `apps/api/openapi`: versioned health, public-temple, and protected admin
-  endpoint contract.
+- `apps/api/openapi`: versioned health, public-directory, account, member,
+  representative, report, correction, and protected-admin endpoint contract.
 - `apps/web`: Next.js App Router public shell with server-rendered temple
-  directory pages, SEO route handlers, and a protected admin dashboard.
+  and organization directory pages, SEO route handlers, and a protected admin
+  dashboard.
 - `apps/mobile`: Flutter Android discovery shell using the public temple API.
 - `IMPLEMENTATION_STATUS.md`: evidence-based feature tracker.
 - The protected admin UI is available at `/admin`; the Flutter app remains a
@@ -95,6 +97,23 @@ GET /api/v1/temples?q=temple&city=Indore&page=1&pageSize=20
 GET /api/v1/temples/{slug}
 ```
 
+Approved public organizations and trusts use the same two-state publication
+boundary and expose only curated public fields. Published organization pages
+also include only associated temples that are themselves verified and
+published:
+
+```text
+GET /api/v1/organizations?q=trust&organizationType=TEMPLE_TRUST&city=Indore&page=1&pageSize=20
+GET /api/v1/organizations/{slug}
+```
+
+The public website provides the corresponding canonical pages at
+`/organizations` and `/organizations/{slug}`. Filtered result pages are
+marked `noindex`, while approved organization detail URLs are eligible for
+the sitemap. Organization edits to an already verified or published record
+move it back to `NEEDS_REVIEW` and `UNPUBLISHED` so that changed public data
+cannot bypass re-review.
+
 The first account API uses revocable opaque bearer sessions. Passwords are
 scrypt-hashed, session tokens are stored only as SHA-256 hashes, and protected
 routes resolve the account server-side:
@@ -108,23 +127,33 @@ GET  /api/v1/admin/access  # requires an active admin role
 ```
 
 The API enforces separate role groups for content editing, verification,
-moderation, and audit review. Temple publication requires a verified record;
-verification decisions, publication changes, report moderation, and content
-creation are written to the audit log. The web dashboard at `/admin/login`
-keeps the opaque API session in an HTTP-only same-site cookie and proxies
-authorized dashboard requests without exposing the token to browser
+moderation, and audit review. Temple and organization publication requires a
+verified record; verification decisions, publication changes, report
+moderation, representative membership decisions, correction decisions, and
+content creation are written to the audit log. Correction approval records
+acceptance of a suggestion only; an editor must make any separate content
+change and the normal verification/publication rules still apply.
+
+Approved organization representatives use explicit organization memberships
+(`OWNER`, `MANAGER`, `EDITOR`, or `VIEWER`) and can edit only permitted fields
+for resources they actively manage. Material changes to verified or published
+records return them to review and unpublished states. Reports and corrections
+are authenticated, rate-limited, duplicate-protected, and visible to the
+submitter through bounded private status lists. The web dashboard at
+`/admin/login` and member routes keep opaque API sessions in HTTP-only same-site
+cookies and proxy authorized requests without exposing tokens to browser
 JavaScript.
 
-Email verification, password recovery, MFA, fine-grained organization-scoped
-management, and object-storage evidence uploads are not yet implemented. Do
-not use this foundation as a production account system until those release
-controls and operational policies are complete.
+Email verification, password recovery, MFA, object-storage evidence uploads,
+and production deployment hardening are not yet implemented. Do not use this
+foundation as a production account system until those release controls and
+operational policies are complete.
 
 ## Database migrations
 
 The reviewed migrations include identity, public temples, authentication
-sessions, and moderation/verification SQL under
-`apps/api/prisma/migrations/`.
+sessions, moderation/verification, organization ownership, representative
+memberships, and correction requests under `apps/api/prisma/migrations/`.
 Apply it to a disposable development database with the repository's Prisma
 workflow after configuring `DATABASE_URL`:
 
@@ -133,7 +162,8 @@ npx prisma migrate deploy --schema apps/api/prisma/schema.prisma
 ```
 
 The integration suite uses synthetic records and verifies authentication,
-public visibility, role-separated moderation, reports, audit events, and the
+public visibility, role-separated moderation, representative claim races and
+revocation, scoped member access, reports, corrections, audit events, and the
 publication/verification boundary against PostgreSQL:
 
 ```sh

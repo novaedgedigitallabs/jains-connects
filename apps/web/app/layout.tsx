@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import './globals.css';
+import { MemberSessionProvider } from './components/member-session';
 
 const siteUrl = process.env.PUBLIC_SITE_URL ?? 'http://localhost:3000';
 
@@ -32,12 +33,16 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             </Link>
             <nav className="primary-nav" aria-label="Primary navigation">
               <Link href="/temples">Temples</Link>
+              <Link href="/organizations">Organizations</Link>
               <Link href="/about">About</Link>
               <Link href="/support-jainconnect">Support JainConnect</Link>
+              <Link href="/account">Account</Link>
             </nav>
           </div>
         </header>
-        <main>{children}</main>
+        <MemberSessionProvider>
+          <main>{children}</main>
+        </MemberSessionProvider>
         <footer className="site-footer">
           <div className="site-footer-inner">
             <p>Useful Jain community information, published with care.</p>

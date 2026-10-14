@@ -90,6 +90,9 @@ class FakeAdminStore implements AdminStore {
     return { id: 'organization-1' };
   }
   readonly updateOrganization = vi.fn().mockResolvedValue({ id: 'organization-1' });
+  readonly setOrganizationPublication = vi
+    .fn()
+    .mockResolvedValue({ id: 'organization-1', publicationStatus: 'PUBLISHED' });
   async reviewOrganization() {
     return { id: 'organization-1', verificationStatus: 'VERIFIED' };
   }
@@ -99,11 +102,53 @@ class FakeAdminStore implements AdminStore {
   async createTempleReport() {
     return { id: 'report-1', status: 'OPEN' };
   }
+  async createOrganizationReport() {
+    return { id: 'report-2', status: 'OPEN' };
+  }
   async listReports() {
     return { items: [], total: 0 };
   }
   async updateReport() {
     return { id: 'report-1', status: 'ACTIONED' };
+  }
+  async submitRepresentativeClaim() {
+    return { id: 'claim-1', status: 'PENDING' };
+  }
+  async listOrganizationMemberships() {
+    return [];
+  }
+  async listRepresentativeClaims() {
+    return [];
+  }
+  async listAdminRepresentativeClaims() {
+    return { items: [], total: 0 };
+  }
+  async decideRepresentativeClaim() {
+    return { id: 'claim-1', status: 'APPROVED' };
+  }
+  async revokeOrganizationMember() {
+    return { id: 'member-1', status: 'REVOKED' };
+  }
+  async updateOrganizationAsMember() {
+    return { id: 'organization-1' };
+  }
+  async updateTempleAsMember() {
+    return { id: 'temple-1' };
+  }
+  async createCorrection() {
+    return { id: 'correction-1', status: 'SUBMITTED' };
+  }
+  async listMyReports() {
+    return { items: [], total: 0 };
+  }
+  async listMyCorrections() {
+    return { items: [], total: 0 };
+  }
+  async listCorrections() {
+    return { items: [], total: 0 };
+  }
+  async updateCorrection() {
+    return { id: 'correction-1', status: 'APPROVED' };
   }
 }
 
@@ -174,6 +219,13 @@ describe('protected admin API', () => {
       .send({ status: 'PUBLISHED' });
     expect(publication.status).toBe(200);
     expect(admin.setTemplePublication).toHaveBeenCalled();
+
+    const organizationPublication = await request(app)
+      .post('/api/v1/admin/organizations/7a2c7a82-769a-4d76-b9bf-8e27b9bc4242/publication')
+      .set('Authorization', `Bearer ${editorToken}`)
+      .send({ status: 'PUBLISHED' });
+    expect(organizationPublication.status).toBe(200);
+    expect(admin.setOrganizationPublication).toHaveBeenCalled();
 
     const organizationUpdate = await request(app)
       .patch('/api/v1/admin/organizations/7a2c7a82-769a-4d76-b9bf-8e27b9bc4242')

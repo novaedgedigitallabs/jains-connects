@@ -23,15 +23,19 @@ integrationSuite('public temple directory PostgreSQL integration', () => {
       db: { url: config.databaseUrl },
     },
   });
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const publishedSlug = `synthetic-published-temple-${suffix}`;
+  const draftSlug = `synthetic-draft-temple-${suffix}`;
+  const pendingSlug = `synthetic-pending-temple-${suffix}`;
+  const city = `Synthetic City ${suffix}`;
 
   beforeAll(async () => {
-    await client.temple.deleteMany();
     await client.temple.createMany({
       data: [
         {
           name: 'Synthetic Published Temple',
-          slug: 'synthetic-published-temple',
-          city: 'Indore',
+          slug: publishedSlug,
+          city,
           state: 'Madhya Pradesh',
           country: 'India',
           verificationStatus: 'VERIFIED',
@@ -40,15 +44,15 @@ integrationSuite('public temple directory PostgreSQL integration', () => {
         },
         {
           name: 'Synthetic Draft Temple',
-          slug: 'synthetic-draft-temple',
-          city: 'Indore',
+          slug: draftSlug,
+          city,
           verificationStatus: 'VERIFIED',
           publicationStatus: 'DRAFT',
         },
         {
           name: 'Synthetic Pending Temple',
-          slug: 'synthetic-pending-temple',
-          city: 'Indore',
+          slug: pendingSlug,
+          city,
           verificationStatus: 'PENDING',
           publicationStatus: 'PUBLISHED',
         },
@@ -57,7 +61,9 @@ integrationSuite('public temple directory PostgreSQL integration', () => {
   });
 
   afterAll(async () => {
-    await client.temple.deleteMany();
+    await client.temple.deleteMany({
+      where: { slug: { in: [publishedSlug, draftSlug, pendingSlug] } },
+    });
     await client.$disconnect();
   });
 
@@ -71,11 +77,11 @@ integrationSuite('public temple directory PostgreSQL integration', () => {
       templeDirectory: new PrismaTempleDirectory(client),
     });
 
-    const response = await request(app).get('/api/v1/temples').query({ city: 'indore' });
+    const response = await request(app).get('/api/v1/temples').query({ city: city.toLowerCase() });
 
     expect(response.status).toBe(200);
     expect(response.body.pagination.total).toBe(1);
-    expect(response.body.data[0].slug).toBe('synthetic-published-temple');
+    expect(response.body.data[0].slug).toBe(publishedSlug);
     expect(response.body.data[0]).not.toHaveProperty('publicationStatus');
     expect(response.body.data[0]).not.toHaveProperty('createdById');
   });
@@ -90,7 +96,7 @@ integrationSuite('public temple directory PostgreSQL integration', () => {
       templeDirectory: new PrismaTempleDirectory(client),
     });
 
-    const response = await request(app).get('/api/v1/temples/synthetic-pending-temple');
+    const response = await request(app).get(`/api/v1/temples/${pendingSlug}`);
 
     expect(response.status).toBe(404);
     expect(response.body.error.message).toBe('Temple not found');

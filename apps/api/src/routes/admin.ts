@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { AdminListFilters, AdminStore } from '../admin/store.js';
 import type { AuthStore } from '../auth/store.js';
@@ -23,6 +24,14 @@ const verificationStatuses = [
 const publicationStatuses = ['DRAFT', 'PUBLISHED', 'UNPUBLISHED', 'ARCHIVED'] as const;
 const organizationTypes = ['TEMPLE_TRUST', 'COMMUNITY_GROUP', 'CHARITY', 'OTHER'] as const;
 const reportStatuses = ['OPEN', 'IN_REVIEW', 'ACTIONED', 'DISMISSED'] as const;
+const correctionStatuses = [
+  'SUBMITTED',
+  'IN_REVIEW',
+  'NEEDS_CHANGES',
+  'APPROVED',
+  'REJECTED',
+  'WITHDRAWN',
+] as const;
 
 const uuidSchema = z.string().uuid();
 const paginationSchema = z
@@ -93,8 +102,22 @@ const publicationSchema = z.object({ status: z.enum(publicationStatuses) }).stri
 const reportUpdateSchema = z
   .object({
     status: z.enum(reportStatuses),
-    resolutionCode: z.string().trim().max(64).optional(),
+    resolutionCode: z.string().trim().min(2).max(64).optional(),
     moderatorNotes: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+
+const claimDecisionSchema = z
+  .object({
+    status: z.enum(['APPROVED', 'REJECTED', 'NEEDS_MORE_INFO', 'REVOKED']),
+    notes: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+
+const correctionDecisionSchema = z
+  .object({
+    status: z.enum(correctionStatuses),
+    reviewerNotes: z.string().trim().max(2000).optional(),
   })
   .strict();
 
@@ -157,19 +180,21 @@ function redactReviewNotes(result: { items: unknown[]; total: number }, includeN
   if (includeNotes) return result;
   return {
     ...result,
-    items: result.items.map((item) => {
-      if (!item || typeof item !== 'object') return item;
-      const record = item as Record<string, unknown>;
-      const reviews = record.verificationReviews;
-      if (!Array.isArray(reviews)) return item;
-      return {
-        ...record,
-        verificationReviews: reviews.map((review) => {
-          if (!review || typeof review !== 'object') return review;
-          const { reviewNotes: _reviewNotes, ...safeReview } = review as Record<string, unknown>;
-          return safeReview;
-        }),
-      };
+    items: result.items.map((item) => redactReviewNotesFromItem(item, includeNotes)),
+  };
+}
+
+function redactReviewNotesFromItem(item: unknown, includeNotes: boolean) {
+  if (includeNotes || !item || typeof item !== 'object') return item;
+  const record = item as Record<string, unknown>;
+  const reviews = record.verificationReviews;
+  if (!Array.isArray(reviews)) return item;
+  return {
+    ...record,
+    verificationReviews: reviews.map((review) => {
+      if (!review || typeof review !== 'object') return review;
+      const { reviewNotes: _reviewNotes, ...safeReview } = review as Record<string, unknown>;
+      return safeReview;
     }),
   };
 }
@@ -205,7 +230,9 @@ export function createAdminRouter(authStore: AuthStore, adminStore?: AdminStore)
       const store = requireStore(adminStore);
       const input = parse(templeInputSchema, request.body);
       const created = await store.createTemple(input as Record<string, unknown>, actor(response));
-      response.status(201).json({ data: created });
+      response
+        .status(201)
+        .json({ data: redactReviewNotesFromItem(created, canReadReviewNotes(response)) });
     };
     void run().catch(next);
   });
@@ -224,7 +251,9 @@ export function createAdminRouter(authStore: AuthStore, adminStore?: AdminStore)
           actor(response),
         );
         if (!updated) throw new AppError(404, 'NOT_FOUND', 'Temple not found');
-        response.status(200).json({ data: updated });
+        response
+          .status(200)
+          .json({ data: redactReviewNotesFromItem(updated, canReadReviewNotes(response)) });
       };
       void run().catch(next);
     },
@@ -240,6 +269,72 @@ export function createAdminRouter(authStore: AuthStore, adminStore?: AdminStore)
         const input = parse(reviewSchema, request.body);
         const updated = await store.reviewTemple(id, input.status, input.notes, actor(response));
         if (!updated) throw new AppError(404, 'NOT_FOUND', 'Temple not found');
+        response
+          .status(200)
+          .json({ data: redactReviewNotesFromItem(updated, canReadReviewNotes(response)) });
+      };
+      void run().catch(next);
+    },
+  );
+
+  router.get(
+    '/representative-claims',
+    requireAnyRole(authStore, reviewerRoles),
+    (request, response, next) => {
+      const run = async () => {
+        const parsed = parse(
+          z
+            .object({
+              status: z
+                .enum(['PENDING', 'APPROVED', 'REJECTED', 'NEEDS_MORE_INFO', 'REVOKED'])
+                .optional(),
+              page: z.coerce.number().int().min(1).max(1000).default(1),
+              pageSize: z.coerce.number().int().min(1).max(50).default(25),
+            })
+            .strict(),
+          request.query,
+        );
+        const result = await requireStore(adminStore).listAdminRepresentativeClaims(
+          parsed.status,
+          parsed.page ?? 1,
+          parsed.pageSize ?? 25,
+        );
+        response.status(200).json(pageResponse(result, parsed.page ?? 1, parsed.pageSize ?? 25));
+      };
+      void run().catch(next);
+    },
+  );
+
+  router.post(
+    '/representative-claims/:id/decision',
+    requireAnyRole(authStore, reviewerRoles),
+    (request, response, next) => {
+      const run = async () => {
+        const input = parse(claimDecisionSchema, request.body);
+        const updated = await requireStore(adminStore).decideRepresentativeClaim(
+          routeId(request.params.id),
+          input.status,
+          input.notes,
+          actor(response),
+        );
+        if (!updated) throw new AppError(404, 'NOT_FOUND', 'Representative claim not found');
+        response.status(200).json({ data: updated });
+      };
+      void run().catch(next);
+    },
+  );
+
+  router.post(
+    '/organizations/:id/members/:memberId/revoke',
+    requireAnyRole(authStore, reviewerRoles),
+    (request, response, next) => {
+      const run = async () => {
+        const updated = await requireStore(adminStore).revokeOrganizationMember(
+          routeId(request.params.id),
+          routeId(request.params.memberId),
+          actor(response),
+        );
+        if (!updated) throw new AppError(404, 'NOT_FOUND', 'Active organization member not found');
         response.status(200).json({ data: updated });
       };
       void run().catch(next);
@@ -256,7 +351,9 @@ export function createAdminRouter(authStore: AuthStore, adminStore?: AdminStore)
         const input = parse(publicationSchema, request.body);
         const updated = await store.setTemplePublication(id, input.status, actor(response));
         if (!updated) throw new AppError(404, 'NOT_FOUND', 'Temple not found');
-        response.status(200).json({ data: updated });
+        response
+          .status(200)
+          .json({ data: redactReviewNotesFromItem(updated, canReadReviewNotes(response)) });
       };
       void run().catch(next);
     },
@@ -291,7 +388,9 @@ export function createAdminRouter(authStore: AuthStore, adminStore?: AdminStore)
           input as Record<string, unknown>,
           actor(response),
         );
-        response.status(201).json({ data: created });
+        response
+          .status(201)
+          .json({ data: redactReviewNotesFromItem(created, canReadReviewNotes(response)) });
       };
       void run().catch(next);
     },
@@ -311,7 +410,27 @@ export function createAdminRouter(authStore: AuthStore, adminStore?: AdminStore)
           actor(response),
         );
         if (!updated) throw new AppError(404, 'NOT_FOUND', 'Organization not found');
-        response.status(200).json({ data: updated });
+        response
+          .status(200)
+          .json({ data: redactReviewNotesFromItem(updated, canReadReviewNotes(response)) });
+      };
+      void run().catch(next);
+    },
+  );
+
+  router.post(
+    '/organizations/:id/publication',
+    requireAnyRole(authStore, editorRoles),
+    (request, response, next) => {
+      const run = async () => {
+        const store = requireStore(adminStore);
+        const id = routeId(request.params.id);
+        const input = parse(publicationSchema, request.body);
+        const updated = await store.setOrganizationPublication(id, input.status, actor(response));
+        if (!updated) throw new AppError(404, 'NOT_FOUND', 'Organization not found');
+        response
+          .status(200)
+          .json({ data: redactReviewNotesFromItem(updated, canReadReviewNotes(response)) });
       };
       void run().catch(next);
     },
@@ -379,6 +498,53 @@ export function createAdminRouter(authStore: AuthStore, adminStore?: AdminStore)
     void run().catch(next);
   });
 
+  router.get(
+    '/corrections',
+    requireAnyRole(authStore, moderatorRoles),
+    (request, response, next) => {
+      const run = async () => {
+        const parsed = parse(
+          z
+            .object({
+              status: z.enum(correctionStatuses).optional(),
+              page: z.coerce.number().int().min(1).max(1000).default(1),
+              pageSize: z.coerce.number().int().min(1).max(50).default(25),
+            })
+            .strict(),
+          request.query,
+        );
+        const result = await requireStore(adminStore).listCorrections(
+          parsed.status,
+          parsed.page ?? 1,
+          parsed.pageSize ?? 25,
+        );
+        response.status(200).json(pageResponse(result, parsed.page ?? 1, parsed.pageSize ?? 25));
+      };
+      void run().catch(next);
+    },
+  );
+
+  router.post(
+    '/corrections/:id/decision',
+    requireAnyRole(authStore, moderatorRoles),
+    (request, response, next) => {
+      const run = async () => {
+        const input = parse(correctionDecisionSchema, request.body);
+        const updated = await requireStore(adminStore).updateCorrection(
+          routeId(request.params.id),
+          {
+            status: input.status,
+            ...(input.reviewerNotes !== undefined ? { reviewerNotes: input.reviewerNotes } : {}),
+          },
+          actor(response),
+        );
+        if (!updated) throw new AppError(404, 'NOT_FOUND', 'Correction request not found');
+        response.status(200).json({ data: updated });
+      };
+      void run().catch(next);
+    },
+  );
+
   router.patch(
     '/reports/:id',
     requireAnyRole(authStore, moderatorRoles),
@@ -408,6 +574,14 @@ export function createAdminRouter(authStore: AuthStore, adminStore?: AdminStore)
 export function createReportRouter(authStore: AuthStore, adminStore: AdminStore): Router {
   const router = Router();
   router.use(requireAuthentication(authStore));
+  router.use(
+    rateLimit({
+      windowMs: 15 * 60_000,
+      limit: 20,
+      standardHeaders: 'draft-7',
+      legacyHeaders: false,
+    }),
+  );
   router.post('/temples/:id', (request, response, next) => {
     const run = async () => {
       const id = routeId(request.params.id);
@@ -427,5 +601,96 @@ export function createReportRouter(authStore: AuthStore, adminStore: AdminStore)
     };
     void run().catch(next);
   });
+  router.post('/organizations/:id', (request, response, next) => {
+    const run = async () => {
+      const id = routeId(request.params.id);
+      const input = parse(
+        z
+          .object({
+            reasonCode: z.string().trim().min(2).max(64),
+            description: z.string().trim().min(10).max(2000),
+          })
+          .strict(),
+        request.body,
+      );
+      const auth = response.locals.auth as { userId: string };
+      const created = await adminStore.createOrganizationReport(id, input, auth.userId);
+      if (!created) throw new AppError(404, 'NOT_FOUND', 'Organization not found');
+      response.status(201).json({ data: { id: created.id, status: created.status } });
+    };
+    void run().catch(next);
+  });
+  router.post('/temples/:id/corrections', (request, response, next) => {
+    const run = async () => {
+      const id = routeId(request.params.id);
+      const input = parse(
+        z
+          .object({
+            reasonCode: z.string().trim().min(2).max(64),
+            description: z.string().trim().min(10).max(2000),
+            proposedChanges: z
+              .record(z.string().trim().min(1).max(64), z.string().trim().max(4000))
+              .optional(),
+            sourceUrl: z.string().trim().url().max(2048).optional(),
+          })
+          .strict(),
+        request.body,
+      );
+      const created = await adminStore.createCorrection(
+        { templeId: id },
+        {
+          reasonCode: input.reasonCode,
+          description: input.description,
+          ...(input.proposedChanges !== undefined
+            ? { proposedChanges: input.proposedChanges }
+            : {}),
+          ...(input.sourceUrl !== undefined ? { sourceUrl: input.sourceUrl } : {}),
+        },
+        authUserId(response),
+      );
+      if (!created) throw new AppError(404, 'NOT_FOUND', 'Temple not found');
+      response.status(201).json({ data: created });
+    };
+    void run().catch(next);
+  });
+  router.post('/organizations/:id/corrections', (request, response, next) => {
+    const run = async () => {
+      const id = routeId(request.params.id);
+      const input = parse(
+        z
+          .object({
+            reasonCode: z.string().trim().min(2).max(64),
+            description: z.string().trim().min(10).max(2000),
+            proposedChanges: z
+              .record(z.string().trim().min(1).max(64), z.string().trim().max(4000))
+              .optional(),
+            sourceUrl: z.string().trim().url().max(2048).optional(),
+          })
+          .strict(),
+        request.body,
+      );
+      const created = await adminStore.createCorrection(
+        { organizationId: id },
+        {
+          reasonCode: input.reasonCode,
+          description: input.description,
+          ...(input.proposedChanges !== undefined
+            ? { proposedChanges: input.proposedChanges }
+            : {}),
+          ...(input.sourceUrl !== undefined ? { sourceUrl: input.sourceUrl } : {}),
+        },
+        authUserId(response),
+      );
+      if (!created) throw new AppError(404, 'NOT_FOUND', 'Organization not found');
+      response.status(201).json({ data: created });
+    };
+    void run().catch(next);
+  });
   return router;
+}
+
+function authUserId(response: { locals: Record<string, unknown> }) {
+  const auth = response.locals.auth as { userId: string } | undefined;
+  if (!auth) throw new AppError(401, 'AUTHENTICATION_REQUIRED', 'Authentication is required');
+  return auth.userId;
 }

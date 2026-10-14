@@ -70,6 +70,36 @@ enum ReportStatus {
   DISMISSED
 }
 
+enum OrganizationMembershipRole {
+  OWNER
+  MANAGER
+  EDITOR
+  VIEWER
+}
+
+enum OrganizationMembershipStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+}
+
+enum RepresentativeClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_MORE_INFO
+  REVOKED
+}
+
+enum CorrectionStatus {
+  SUBMITTED
+  IN_REVIEW
+  NEEDS_CHANGES
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
 model User {
   id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email            String?         @unique @db.VarChar(320)
@@ -93,6 +123,12 @@ model User {
   reviewedReviews  VerificationReview[] @relation("ReviewReviewer")
   reports          Report[]             @relation("ReportReporter")
   assignedReports  Report[]             @relation("ReportAssignee")
+  organizationMemberships OrganizationMember[] @relation("OrganizationMemberUser")
+  approvedMemberships OrganizationMember[] @relation("OrganizationMemberApprover")
+  representativeClaims OrganizationRepresentativeClaim[] @relation("RepresentativeClaimApplicant")
+  reviewedRepresentativeClaims OrganizationRepresentativeClaim[] @relation("RepresentativeClaimReviewer")
+  correctionRequests CorrectionRequest[] @relation("CorrectionRequester")
+  reviewedCorrections CorrectionRequest[] @relation("CorrectionReviewer")
 
   @@index([status, createdAt])
 }
@@ -205,9 +241,56 @@ model Organization {
   temples            Temple[]
   verificationReviews VerificationReview[]
   reports             Report[]
+  members             OrganizationMember[]
+  representativeClaims OrganizationRepresentativeClaim[]
+  corrections         CorrectionRequest[]
 
   @@index([publicationStatus, verificationStatus])
   @@index([city, state])
+}
+
+model OrganizationMember {
+  id               String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String                     @db.Uuid
+  userId           String                     @db.Uuid
+  membershipRole   OrganizationMembershipRole
+  status           OrganizationMembershipStatus @default(PENDING)
+  requestedAt      DateTime                   @default(now()) @db.Timestamptz(6)
+  approvedById     String?                    @db.Uuid
+  approvedAt       DateTime?                  @db.Timestamptz(6)
+  revokedAt        DateTime?                  @db.Timestamptz(6)
+  createdAt        DateTime                   @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime                   @updatedAt @db.Timestamptz(6)
+  organization     Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User                       @relation("OrganizationMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy       User?                      @relation("OrganizationMemberApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, status])
+  @@index([userId, status])
+}
+
+model OrganizationRepresentativeClaim {
+  id               String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String                     @db.Uuid
+  applicantUserId  String                     @db.Uuid
+  requestedRole    OrganizationMembershipRole
+  applicantStatement String                   @db.VarChar(2000)
+  sourceUrl        String?                    @db.VarChar(2048)
+  status           RepresentativeClaimStatus @default(PENDING)
+  reviewerId       String?                    @db.Uuid
+  reviewNotes      String?                    @db.VarChar(2000)
+  submittedAt      DateTime                   @default(now()) @db.Timestamptz(6)
+  reviewedAt       DateTime?                  @db.Timestamptz(6)
+  createdAt        DateTime                   @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime                   @updatedAt @db.Timestamptz(6)
+  organization     Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  applicant        User                       @relation("RepresentativeClaimApplicant", fields: [applicantUserId], references: [id], onDelete: Cascade)
+  reviewer         User?                      @relation("RepresentativeClaimReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([status, submittedAt])
+  @@index([organizationId, status])
+  @@index([applicantUserId, status])
 }
 
 model Temple {
@@ -238,6 +321,7 @@ model Temple {
   organization       Organization?      @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   verificationReviews VerificationReview[]
   reports             Report[]
+  corrections        CorrectionRequest[]
 
   @@index([publicationStatus, verificationStatus])
   @@index([city, state])
@@ -290,4 +374,32 @@ model Report {
   @@index([templeId, createdAt])
   @@index([organizationId, createdAt])
   @@index([assignedToId, status])
+}
+
+model CorrectionRequest {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  submittedById  String          @db.Uuid
+  templeId       String?         @db.Uuid
+  organizationId String?         @db.Uuid
+  reasonCode     String          @db.VarChar(64)
+  description    String          @db.VarChar(2000)
+  proposedChanges Json?
+  sourceUrl      String?         @db.VarChar(2048)
+  status         CorrectionStatus @default(SUBMITTED)
+  reviewerId     String?         @db.Uuid
+  reviewerNotes  String?         @db.VarChar(2000)
+  submittedAt    DateTime        @default(now()) @db.Timestamptz(6)
+  reviewedAt     DateTime?       @db.Timestamptz(6)
+  resolvedAt     DateTime?       @db.Timestamptz(6)
+  createdAt      DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(6)
+  requester      User            @relation("CorrectionRequester", fields: [submittedById], references: [id], onDelete: Cascade)
+  reviewer       User?           @relation("CorrectionReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  temple         Temple?         @relation(fields: [templeId], references: [id], onDelete: Cascade)
+  organization   Organization?   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([status, submittedAt])
+  @@index([submittedById, status])
+  @@index([organizationId, status])
+  @@index([templeId, status])
 }

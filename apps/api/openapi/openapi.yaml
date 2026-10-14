@@ -327,7 +327,7 @@ paths:
   /admin/organizations/{id}:
     patch:
       operationId: updateAdminOrganization
-      summary: Edit an organization record without changing its review state
+      summary: Edit an organization record and re-review published changes
       security:
         - bearerAuth: []
       parameters:
@@ -353,6 +353,39 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Organization not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/organizations/{id}/publication:
+    post:
+      operationId: setAdminOrganizationPublication
+      summary: Change an organization publication state
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicationInput'
+      responses:
+        '200':
+          description: Updated organization publication state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrganizationResponse'
+        '400':
+          description: Invalid publication input or ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Unverified organizations cannot be published.
           content:
             application/json:
               schema:
@@ -384,6 +417,158 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /admin/representative-claims:
+    get:
+      operationId: listRepresentativeClaims
+      summary: List organization representative claims for reviewers
+      description: >-
+        Requires the ADMIN or VERIFIER role. Claim review is bounded and does not expose
+        evidence or reviewer notes to unauthorized callers.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/RepresentativeClaimStatus'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/AuditPageSize'
+      responses:
+        '200':
+          description: Paginated representative claims with restricted applicant details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminRepresentativeClaimListResponse'
+  /admin/representative-claims/{id}/decision:
+    post:
+      operationId: decideRepresentativeClaim
+      summary: Decide an organization representative claim
+      description: >-
+        Requires the ADMIN or VERIFIER role. Allowed transitions are PENDING to
+        APPROVED, REJECTED, or NEEDS_MORE_INFO; NEEDS_MORE_INFO to APPROVED or
+        REJECTED; and APPROVED to REVOKED. REJECTED and REVOKED are terminal.
+        The reviewer cannot decide their own claim. Approval rechecks that the
+        applicant is active and the organization is VERIFIED and PUBLISHED, and
+        concurrent decisions are serialized by the server.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepresentativeClaimDecisionInput'
+      responses:
+        '200':
+          description: Claim decision recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepresentativeClaimDecisionResponse'
+        '403':
+          description: Self-approval or reviewer permission violation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: The organization is not eligible for representative approval.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/organizations/{id}/members/{memberId}/revoke:
+    post:
+      operationId: revokeOrganizationMember
+      summary: Revoke an organization membership
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Membership revoked.
+        '404':
+          description: Active membership not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/corrections:
+    get:
+      operationId: listAdminCorrections
+      summary: List correction requests for reviewers
+      description: Requires the MODERATOR or ADMIN role.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/CorrectionStatus'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/AuditPageSize'
+      responses:
+        '200':
+          description: Paginated correction requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCorrectionListResponse'
+        '403':
+          description: An active MODERATOR or ADMIN role is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/corrections/{id}/decision:
+    post:
+      operationId: decideCorrection
+      summary: Review an authenticated public-record correction request
+      description: >-
+        Requires the MODERATOR or ADMIN role. APPROVED accepts the submitted
+        suggestion for a separate content-editor workflow only; it does not
+        change public content, lifecycle state, publication, or verification.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorrectionDecisionInput'
+      responses:
+        '200':
+          description: Correction decision recorded without mutating public content or review state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectionDecisionResponse'
+        '409':
+          description: Invalid correction state transition.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: An active MODERATOR or ADMIN role is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /admin/audit:
     get:
       operationId: listAdminAuditEvents
@@ -404,6 +589,7 @@ paths:
     get:
       operationId: listAdminReports
       summary: List community reports for moderators
+      description: Requires the MODERATOR or ADMIN role.
       security:
         - bearerAuth: []
       parameters:
@@ -425,6 +611,10 @@ paths:
     patch:
       operationId: updateAdminReport
       summary: Moderate a community report
+      description: >-
+        Requires the MODERATOR or ADMIN role. ACTIONED and DISMISSED require a
+        fresh resolutionCode in this request. Reopening with OPEN clears any
+        previous resolution code.
       security:
         - bearerAuth: []
       parameters:
@@ -441,7 +631,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ReportResponse'
+                $ref: '#/components/schemas/ReportDecisionResponse'
         '404':
           description: Report not found.
           content:
@@ -452,6 +642,47 @@ paths:
     post:
       operationId: createTempleReport
       summary: Submit a report about a temple
+      description: The target must be a verified and published temple.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportInput'
+      responses:
+        '201':
+          description: Report created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportCreatedResponse'
+        '400':
+          description: Invalid report details or ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: An open report already exists for this record and account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Temple not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /reports/organizations/{id}:
+    post:
+      operationId: createOrganizationReport
+      summary: Submit a report about an organization
+      description: The target must be a verified and published organization.
       security:
         - bearerAuth: []
       parameters:
@@ -476,7 +707,276 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Temple not found.
+          description: Organization not found or not publicly eligible.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: An open report already exists for this record and account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /reports/temples/{id}/corrections:
+    post:
+      operationId: createTempleCorrection
+      summary: Submit an authenticated correction for a public temple
+      description: >-
+        The target must be a verified and published temple. This creates a
+        review suggestion only; it does not directly change public content,
+        lifecycle state, publication, or verification.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorrectionInput'
+      responses:
+        '201':
+          description: Correction submitted for review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectionSubmissionResponse'
+        '400':
+          description: Invalid correction details or ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Temple not found or not publicly eligible.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: A correction is already open for this record and account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /reports/organizations/{id}/corrections:
+    post:
+      operationId: createOrganizationCorrection
+      summary: Submit an authenticated correction for a public organization
+      description: >-
+        The target must be a verified and published organization. This creates
+        a review suggestion only; it does not directly change public content,
+        lifecycle state, publication, or verification.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorrectionInput'
+      responses:
+        '201':
+          description: Correction submitted for review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectionSubmissionResponse'
+        '400':
+          description: Invalid correction details or ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Organization not found or not publicly eligible.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: A correction is already open for this record and account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /organizations/{id}/representative-claims:
+    post:
+      operationId: submitRepresentativeClaim
+      summary: Request scoped organization representative access
+      description: >-
+        An active authenticated user may claim only a VERIFIED and PUBLISHED
+        organization. Duplicate in-review claims and concurrent membership
+        changes are rejected safely.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepresentativeClaimInput'
+      responses:
+        '201':
+          description: Representative claim submitted for review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepresentativeClaimSubmissionResponse'
+        '409':
+          description: An open claim already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: The authenticated applicant account is not active.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Organization not found or not VERIFIED and PUBLISHED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /me/organization-memberships:
+    get:
+      operationId: listMyOrganizationMemberships
+      summary: List the authenticated user's organization memberships
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Bounded memberships for the current account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationMembershipListResponse'
+  /me/representative-claims:
+    get:
+      operationId: listMyRepresentativeClaims
+      summary: List the authenticated user's representative claims
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Bounded claims for the current account with safe applicant fields only.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepresentativeClaimListResponse'
+  /me/reports:
+    get:
+      operationId: listMyReports
+      summary: List reports submitted by the authenticated user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Bounded report statuses and safe target labels for the current user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyReportListResponse'
+  /me/corrections:
+    get:
+      operationId: listMyCorrections
+      summary: List corrections submitted by the authenticated user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Bounded correction statuses without reviewer notes or reviewer identity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyCorrectionListResponse'
+  /me/organizations/{id}:
+    get:
+      operationId: getMyOrganization
+      summary: Get an organization managed by the authenticated user
+      description: >-
+        Returns only the safe organization fields available through an active,
+        approved membership. Review evidence, notes, and creator identity are
+        not returned.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Scoped representative organization data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepresentativeOrganizationResponse'
+        '404':
+          description: The organization is not managed by the current user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /me/temples/{id}:
+    get:
+      operationId: getMyTemple
+      summary: Get an associated temple managed by the authenticated user
+      description: Returns safe temple fields through an active, approved organization membership.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Scoped representative temple data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepresentativeTempleResponse'
+        '404':
+          description: The temple is not managed through the current user's organization membership.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /me/organizations/{id}/temples:
+    get:
+      operationId: listMyOrganizationTemples
+      summary: List temples associated with an organization managed by the authenticated user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Bounded safe temple records for the scoped organization.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepresentativeTempleListResponse'
+        '404':
+          description: The organization is not managed by the current user.
           content:
             application/json:
               schema:
@@ -556,6 +1056,132 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      operationId: updateTempleAsRepresentative
+      summary: Update an associated temple through an approved organization membership
+      description: >-
+        The path value is the temple resource UUID for this operation. Only
+        public representative fields are accepted; verification and publication
+        remain server-controlled.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            description: UUID of the temple resource for this protected operation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TempleRepresentativePatch'
+      responses:
+        '200':
+          description: Updated temple record; material edits may unpublish it for re-review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepresentativeTempleResponse'
+        '403':
+          description: The authenticated user has no suitable active organization membership.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /organizations:
+    get:
+      operationId: listPublicOrganizations
+      summary: List approved public Jain organizations and trusts
+      parameters:
+        - $ref: '#/components/parameters/SearchQuery'
+        - $ref: '#/components/parameters/OrganizationType'
+        - $ref: '#/components/parameters/City'
+        - $ref: '#/components/parameters/State'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A paginated list of verified and published organizations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationListResponse'
+        '400':
+          description: Invalid organization search filters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /organizations/{slug}:
+    get:
+      operationId: getPublicOrganization
+      summary: Get one approved public organization or trust
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+      responses:
+        '200':
+          description: A verified and published organization with safe public temple associations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '400':
+          description: Invalid organization slug.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: The approved public organization does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      operationId: updateOrganizationAsRepresentative
+      summary: Update an organization through an approved scoped membership
+      description: >-
+        The path value is the organization resource UUID for this operation.
+        Only public representative fields are accepted; verification and
+        publication remain server-controlled.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+            description: UUID of the organization resource for this protected operation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationRepresentativePatch'
+      responses:
+        '200':
+          description: Updated organization record; material edits may unpublish it for re-review.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepresentativeOrganizationResponse'
+        '403':
+          description: The authenticated user has no suitable active membership.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   securitySchemes:
     bearerAuth:
@@ -587,6 +1213,12 @@ components:
         type: string
         minLength: 1
         maxLength: 120
+    OrganizationType:
+      name: organizationType
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/OrganizationType'
     Page:
       name: page
       in: query
@@ -712,8 +1344,8 @@ components:
           properties:
             roles:
               type: array
-            items:
-              type: string
+              items:
+                type: string
     VerificationStatus:
       type: string
       enum: [PENDING, VERIFIED, REJECTED, SUSPENDED, NEEDS_REVIEW]
@@ -726,6 +1358,87 @@ components:
     ReportStatus:
       type: string
       enum: [OPEN, IN_REVIEW, ACTIONED, DISMISSED]
+    OrganizationMembershipRole:
+      type: string
+      enum: [OWNER, MANAGER, EDITOR, VIEWER]
+    OrganizationMembershipStatus:
+      type: string
+      enum: [PENDING, ACTIVE, REVOKED]
+    RepresentativeClaimStatus:
+      type: string
+      description: >-
+        Claims transition PENDING to APPROVED, REJECTED, or NEEDS_MORE_INFO;
+        NEEDS_MORE_INFO to APPROVED or REJECTED; and APPROVED to REVOKED.
+        REJECTED and REVOKED are terminal.
+      enum: [PENDING, APPROVED, REJECTED, NEEDS_MORE_INFO, REVOKED]
+    CorrectionStatus:
+      type: string
+      enum: [SUBMITTED, IN_REVIEW, NEEDS_CHANGES, APPROVED, REJECTED, WITHDRAWN]
+    RepresentativeClaimInput:
+      type: object
+      additionalProperties: false
+      required: [requestedRole, applicantStatement]
+      properties:
+        requestedRole:
+          type: string
+          enum: [OWNER, MANAGER, EDITOR]
+        applicantStatement:
+          type: string
+          minLength: 20
+          maxLength: 2000
+        sourceUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+    RepresentativeClaimDecisionInput:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [APPROVED, REJECTED, NEEDS_MORE_INFO, REVOKED]
+        notes:
+          type: string
+          maxLength: 2000
+          description: Private reviewer note; never returned in member-facing responses.
+    CorrectionInput:
+      type: object
+      additionalProperties: false
+      required: [reasonCode, description]
+      properties:
+        reasonCode:
+          type: string
+          minLength: 2
+          maxLength: 64
+        description:
+          type: string
+          minLength: 10
+          maxLength: 2000
+        proposedChanges:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 4000
+        sourceUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+    CorrectionDecisionInput:
+      type: object
+      additionalProperties: false
+      description: >-
+        A moderator or administrator records a workflow decision. APPROVED
+        accepts the suggestion for a separate content-editor workflow only; it
+        does not apply proposed changes or mutate public, lifecycle, publication,
+        or verification state.
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/CorrectionStatus'
+        reviewerNotes:
+          type: string
+          maxLength: 2000
     VerificationInput:
       type: object
       additionalProperties: false
@@ -930,6 +1643,110 @@ components:
         country:
           type: [string, 'null']
           maxLength: 120
+    OrganizationRepresentativePatch:
+      type: object
+      additionalProperties: false
+      description: Scoped representative fields. Verification and publication are server-controlled.
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 200
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 180
+        organizationType:
+          $ref: '#/components/schemas/OrganizationType'
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        publicEmail:
+          type: [string, 'null']
+          format: email
+          maxLength: 320
+        publicPhone:
+          type: [string, 'null']
+          maxLength: 32
+        websiteUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+        addressLine1:
+          type: [string, 'null']
+          maxLength: 250
+        addressLine2:
+          type: [string, 'null']
+          maxLength: 250
+        city:
+          type: [string, 'null']
+          maxLength: 120
+        state:
+          type: [string, 'null']
+          maxLength: 120
+        postalCode:
+          type: [string, 'null']
+          maxLength: 20
+        country:
+          type: [string, 'null']
+          maxLength: 120
+    TempleRepresentativePatch:
+      type: object
+      additionalProperties: false
+      description: Scoped representative fields. Verification and publication are server-controlled.
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 200
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          maxLength: 180
+        traditionOrLineage:
+          type: [string, 'null']
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 4000
+        history:
+          type: [string, 'null']
+          maxLength: 8000
+        addressLine1:
+          type: [string, 'null']
+          maxLength: 250
+        addressLine2:
+          type: [string, 'null']
+          maxLength: 250
+        city:
+          type: [string, 'null']
+          maxLength: 120
+        state:
+          type: [string, 'null']
+          maxLength: 120
+        postalCode:
+          type: [string, 'null']
+          maxLength: 20
+        country:
+          type: [string, 'null']
+          maxLength: 120
+        timezone:
+          type: [string, 'null']
+          maxLength: 64
+        publicEmail:
+          type: [string, 'null']
+          format: email
+          maxLength: 320
+        publicPhone:
+          type: [string, 'null']
+          maxLength: 32
+        websiteUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+        darshanInformation:
+          type: [string, 'null']
+          maxLength: 4000
     AdminOrganization:
       type: object
       required: [id, name, slug, organizationType, verificationStatus, publicationStatus]
@@ -1009,21 +1826,54 @@ components:
           minLength: 10
           maxLength: 2000
     ReportUpdateInput:
+      oneOf:
+        - $ref: '#/components/schemas/ReportWorkflowUpdateInput'
+        - $ref: '#/components/schemas/ReportResolutionUpdateInput'
+    ReportWorkflowUpdateInput:
       type: object
       additionalProperties: false
       required: [status]
       properties:
         status:
-          $ref: '#/components/schemas/ReportStatus'
-        resolutionCode:
           type: string
-          maxLength: 64
+          enum: [OPEN, IN_REVIEW]
         moderatorNotes:
           type: string
           maxLength: 2000
-    Report:
+      description: OPEN reopens the report and clears any previous resolutionCode.
+    ReportResolutionUpdateInput:
       type: object
-      required: [id, reasonCode, description, status, createdAt]
+      additionalProperties: false
+      required: [status, resolutionCode]
+      properties:
+        status:
+          type: string
+          enum: [ACTIONED, DISMISSED]
+        resolutionCode:
+          type: string
+          minLength: 2
+          maxLength: 64
+          description: Fresh resolution code supplied for this decision request.
+        moderatorNotes:
+          type: string
+          maxLength: 2000
+    AdminReport:
+      type: object
+      required:
+        [
+          id,
+          reasonCode,
+          description,
+          status,
+          resolutionCode,
+          moderatorNotes,
+          resolvedAt,
+          createdAt,
+          reporter,
+          assignee,
+          temple,
+          organization,
+        ]
       properties:
         id:
           type: string
@@ -1036,15 +1886,89 @@ components:
           $ref: '#/components/schemas/ReportStatus'
         resolutionCode:
           type: [string, 'null']
+        moderatorNotes:
+          type: [string, 'null']
+        resolvedAt:
+          type: [string, 'null']
+          format: date-time
         createdAt:
           type: string
           format: date-time
-    ReportResponse:
+        reporter:
+          oneOf:
+            - $ref: '#/components/schemas/SafeUserLabel'
+            - type: 'null'
+        assignee:
+          oneOf:
+            - $ref: '#/components/schemas/SafeUserLabel'
+            - type: 'null'
+        temple:
+          oneOf:
+            - $ref: '#/components/schemas/AdminRecordLabel'
+            - type: 'null'
+        organization:
+          oneOf:
+            - $ref: '#/components/schemas/AdminRecordLabel'
+            - type: 'null'
+    ReportDecision:
+      type: object
+      required:
+        [
+          id,
+          reporterUserId,
+          templeId,
+          organizationId,
+          reasonCode,
+          description,
+          status,
+          assignedToId,
+          resolutionCode,
+          moderatorNotes,
+          resolvedAt,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        reporterUserId:
+          type: [string, 'null']
+          format: uuid
+        templeId:
+          type: [string, 'null']
+          format: uuid
+        organizationId:
+          type: [string, 'null']
+          format: uuid
+        reasonCode:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/ReportStatus'
+        assignedToId:
+          type: [string, 'null']
+          format: uuid
+        resolutionCode:
+          type: [string, 'null']
+        moderatorNotes:
+          type: [string, 'null']
+        resolvedAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ReportDecisionResponse:
       type: object
       required: [data]
       properties:
         data:
-          $ref: '#/components/schemas/Report'
+          $ref: '#/components/schemas/ReportDecision'
     ReportCreatedResponse:
       type: object
       required: [data]
@@ -1065,7 +1989,616 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/Report'
+            $ref: '#/components/schemas/AdminReport'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    MyReport:
+      type: object
+      required: [id, reasonCode, description, status, resolutionCode, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        reasonCode:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/ReportStatus'
+        resolutionCode:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+        temple:
+          oneOf:
+            - $ref: '#/components/schemas/SafeRecordLabel'
+            - type: 'null'
+        organization:
+          oneOf:
+            - $ref: '#/components/schemas/SafeRecordLabel'
+            - type: 'null'
+    MyReportListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyReport'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    RepresentativeClaim:
+      type: object
+      description: Member-facing claim data; reviewer notes and applicant identity are never included.
+      required:
+        [
+          id,
+          organizationId,
+          requestedRole,
+          status,
+          applicantStatement,
+          submittedAt,
+          reviewedAt,
+          organization,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        requestedRole:
+          $ref: '#/components/schemas/OrganizationMembershipRole'
+        status:
+          $ref: '#/components/schemas/RepresentativeClaimStatus'
+        applicantStatement:
+          type: string
+        submittedAt:
+          type: string
+          format: date-time
+        reviewedAt:
+          type: [string, 'null']
+          format: date-time
+        organization:
+          $ref: '#/components/schemas/SafeOrganizationLabel'
+    RepresentativeClaimSubmission:
+      type: object
+      required: [id, organizationId, requestedRole, status, submittedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        requestedRole:
+          type: string
+          enum: [OWNER, MANAGER, EDITOR]
+        status:
+          $ref: '#/components/schemas/RepresentativeClaimStatus'
+        submittedAt:
+          type: string
+          format: date-time
+    RepresentativeClaimSubmissionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/RepresentativeClaimSubmission'
+    RepresentativeClaimDecision:
+      type: object
+      required:
+        [
+          id,
+          organizationId,
+          requestedRole,
+          status,
+          reviewNotes,
+          reviewedAt,
+          applicant,
+          organization,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        requestedRole:
+          $ref: '#/components/schemas/OrganizationMembershipRole'
+        status:
+          $ref: '#/components/schemas/RepresentativeClaimStatus'
+        reviewNotes:
+          type: [string, 'null']
+          description: Restricted reviewer note; returned only to authorized reviewers.
+        reviewedAt:
+          type: string
+          format: date-time
+        applicant:
+          $ref: '#/components/schemas/ReviewerApplicant'
+        organization:
+          $ref: '#/components/schemas/ReviewerOrganizationLabel'
+    RepresentativeClaimDecisionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/RepresentativeClaimDecision'
+    RepresentativeClaimListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepresentativeClaim'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    AdminRepresentativeClaim:
+      type: object
+      required:
+        [
+          id,
+          organizationId,
+          requestedRole,
+          status,
+          applicantStatement,
+          sourceUrl,
+          reviewNotes,
+          submittedAt,
+          reviewedAt,
+          applicant,
+          organization,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        requestedRole:
+          $ref: '#/components/schemas/OrganizationMembershipRole'
+        status:
+          $ref: '#/components/schemas/RepresentativeClaimStatus'
+        applicantStatement:
+          type: string
+        sourceUrl:
+          type: [string, 'null']
+          format: uri
+        reviewNotes:
+          type: [string, 'null']
+        submittedAt:
+          type: string
+          format: date-time
+        reviewedAt:
+          type: [string, 'null']
+          format: date-time
+        applicant:
+          $ref: '#/components/schemas/ReviewerApplicant'
+        organization:
+          $ref: '#/components/schemas/ReviewerOrganizationLabel'
+    AdminRepresentativeClaimListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminRepresentativeClaim'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    Correction:
+      type: object
+      description: Member-facing correction data without reviewer notes or reviewer identity.
+      required:
+        [
+          id,
+          reasonCode,
+          description,
+          status,
+          sourceUrl,
+          submittedAt,
+          reviewedAt,
+          temple,
+          organization,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        reasonCode:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/CorrectionStatus'
+        sourceUrl:
+          type: [string, 'null']
+          format: uri
+        submittedAt:
+          type: string
+          format: date-time
+        reviewedAt:
+          type: [string, 'null']
+          format: date-time
+        temple:
+          oneOf:
+            - $ref: '#/components/schemas/SafeRecordLabel'
+            - type: 'null'
+        organization:
+          oneOf:
+            - $ref: '#/components/schemas/SafeRecordLabel'
+            - type: 'null'
+    CorrectionSubmission:
+      type: object
+      required: [id, status, submittedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/CorrectionStatus'
+        submittedAt:
+          type: string
+          format: date-time
+    CorrectionSubmissionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/CorrectionSubmission'
+    CorrectionDecision:
+      type: object
+      required: [id, status, reviewerNotes, reviewedAt, resolvedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/CorrectionStatus'
+        reviewerNotes:
+          type: [string, 'null']
+          description: Restricted moderator note; returned only to authorized moderators or administrators.
+        reviewedAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: [string, 'null']
+          format: date-time
+    CorrectionDecisionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/CorrectionDecision'
+    AdminCorrection:
+      type: object
+      required:
+        [
+          id,
+          reasonCode,
+          description,
+          proposedChanges,
+          sourceUrl,
+          status,
+          reviewerNotes,
+          submittedAt,
+          reviewedAt,
+          requester,
+          temple,
+          organization,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        reasonCode:
+          type: string
+        description:
+          type: string
+        proposedChanges:
+          type: [object, 'null']
+          additionalProperties:
+            type: string
+        sourceUrl:
+          type: [string, 'null']
+          format: uri
+        status:
+          $ref: '#/components/schemas/CorrectionStatus'
+        reviewerNotes:
+          type: [string, 'null']
+        submittedAt:
+          type: string
+          format: date-time
+        reviewedAt:
+          type: [string, 'null']
+          format: date-time
+        requester:
+          $ref: '#/components/schemas/ReviewerApplicant'
+        temple:
+          oneOf:
+            - $ref: '#/components/schemas/AdminRecordLabel'
+            - type: 'null'
+        organization:
+          oneOf:
+            - $ref: '#/components/schemas/AdminRecordLabel'
+            - type: 'null'
+    AdminCorrectionListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminCorrection'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    MyCorrectionListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Correction'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    SafeOrganizationLabel:
+      type: object
+      required: [name, slug]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+    SafeRecordLabel:
+      type: object
+      required: [name, slug]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+    AdminRecordLabel:
+      type: object
+      required: [id, name, slug]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+    SafeUserLabel:
+      type: object
+      required: [id, displayName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+    ReviewerApplicant:
+      type: object
+      required: [id, displayName, email]
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        email:
+          type: [string, 'null']
+          format: email
+    ReviewerOrganizationLabel:
+      type: object
+      required: [id, name, slug]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        verificationStatus:
+          $ref: '#/components/schemas/VerificationStatus'
+    OrganizationMembership:
+      type: object
+      required: [id, organizationId, membershipRole, status, approvedAt, revokedAt, organization]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        membershipRole:
+          $ref: '#/components/schemas/OrganizationMembershipRole'
+        status:
+          $ref: '#/components/schemas/OrganizationMembershipStatus'
+        approvedAt:
+          type: [string, 'null']
+          format: date-time
+        revokedAt:
+          type: [string, 'null']
+          format: date-time
+        organization:
+          type: object
+          required: [name, slug, verificationStatus, publicationStatus]
+          properties:
+            name:
+              type: string
+            slug:
+              type: string
+            verificationStatus:
+              $ref: '#/components/schemas/VerificationStatus'
+            publicationStatus:
+              $ref: '#/components/schemas/PublicationStatus'
+    OrganizationMembershipListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationMembership'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    RepresentativeOrganization:
+      type: object
+      description: Safe scoped organization fields; review evidence and creator identity are excluded.
+      required:
+        [
+          id,
+          name,
+          slug,
+          organizationType,
+          verificationStatus,
+          publicationStatus,
+          verifiedAt,
+          lastReviewedAt,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        organizationType:
+          $ref: '#/components/schemas/OrganizationType'
+        description:
+          type: [string, 'null']
+        publicEmail:
+          type: [string, 'null']
+          format: email
+        publicPhone:
+          type: [string, 'null']
+        websiteUrl:
+          type: [string, 'null']
+          format: uri
+        addressLine1:
+          type: [string, 'null']
+        addressLine2:
+          type: [string, 'null']
+        city:
+          type: [string, 'null']
+        state:
+          type: [string, 'null']
+        postalCode:
+          type: [string, 'null']
+        country:
+          type: [string, 'null']
+        verificationStatus:
+          $ref: '#/components/schemas/VerificationStatus'
+        publicationStatus:
+          $ref: '#/components/schemas/PublicationStatus'
+        verifiedAt:
+          type: [string, 'null']
+          format: date-time
+        lastReviewedAt:
+          type: [string, 'null']
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RepresentativeOrganizationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/RepresentativeOrganization'
+    RepresentativeTemple:
+      type: object
+      description: Safe scoped temple fields; review evidence and private identity fields are excluded.
+      required:
+        [
+          id,
+          organizationId,
+          name,
+          slug,
+          verificationStatus,
+          publicationStatus,
+          verifiedAt,
+          lastReviewedAt,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        traditionOrLineage:
+          type: [string, 'null']
+        description:
+          type: [string, 'null']
+        history:
+          type: [string, 'null']
+        addressLine1:
+          type: [string, 'null']
+        addressLine2:
+          type: [string, 'null']
+        city:
+          type: [string, 'null']
+        state:
+          type: [string, 'null']
+        postalCode:
+          type: [string, 'null']
+        country:
+          type: [string, 'null']
+        timezone:
+          type: [string, 'null']
+        publicEmail:
+          type: [string, 'null']
+          format: email
+        publicPhone:
+          type: [string, 'null']
+        websiteUrl:
+          type: [string, 'null']
+          format: uri
+        darshanInformation:
+          type: [string, 'null']
+        verificationStatus:
+          $ref: '#/components/schemas/VerificationStatus'
+        publicationStatus:
+          $ref: '#/components/schemas/PublicationStatus'
+        verifiedAt:
+          type: [string, 'null']
+          format: date-time
+        lastReviewedAt:
+          type: [string, 'null']
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RepresentativeTempleResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/RepresentativeTemple'
+    RepresentativeTempleListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepresentativeTemple'
         pagination:
           $ref: '#/components/schemas/Pagination'
     Pagination:
@@ -1074,12 +2607,18 @@ components:
       properties:
         page:
           type: integer
+          minimum: 1
+          maximum: 1000
         pageSize:
           type: integer
+          minimum: 1
+          maximum: 50
         total:
           type: integer
+          minimum: 0
         totalPages:
           type: integer
+          minimum: 0
     LiveResponse:
       type: object
       required: [data]
@@ -1206,3 +2745,89 @@ components:
               type: integer
             totalPages:
               type: integer
+    OrganizationTemple:
+      type: object
+      required: [id, name, slug, city, state, lastReviewedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        city:
+          type: [string, 'null']
+        state:
+          type: [string, 'null']
+        lastReviewedAt:
+          type: [string, 'null']
+          format: date-time
+    Organization:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - organizationType
+        - verificationStatus
+        - lastReviewedAt
+        - temples
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        organizationType:
+          $ref: '#/components/schemas/OrganizationType'
+        description:
+          type: [string, 'null']
+        publicEmail:
+          type: [string, 'null']
+          format: email
+        publicPhone:
+          type: [string, 'null']
+        websiteUrl:
+          type: [string, 'null']
+          format: uri
+        addressLine1:
+          type: [string, 'null']
+        addressLine2:
+          type: [string, 'null']
+        city:
+          type: [string, 'null']
+        state:
+          type: [string, 'null']
+        postalCode:
+          type: [string, 'null']
+        country:
+          type: [string, 'null']
+        verificationStatus:
+          type: string
+          const: VERIFIED
+        lastReviewedAt:
+          type: [string, 'null']
+          format: date-time
+        temples:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationTemple'
+    OrganizationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Organization'
+    OrganizationListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Organization'
+        pagination:
+          $ref: '#/components/schemas/Pagination'

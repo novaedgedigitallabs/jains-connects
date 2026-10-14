@@ -7,18 +7,26 @@ import type { AdminStore } from './admin/store.js';
 import type { AuthStore } from './auth/store.js';
 import type { DatabaseHealth } from './db/database.js';
 import type { PublicTempleDirectory } from './directories/temples.js';
+import type { PublicOrganizationDirectory } from './directories/organizations.js';
 import { errorHandler, notFound } from './http/errors.js';
 import { requestId } from './http/request-id.js';
 import { createHealthRouter } from './routes/health.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createAdminRouter, createReportRouter } from './routes/admin.js';
 import { createTempleRouter } from './routes/temples.js';
+import { createOrganizationRouter } from './routes/organizations.js';
+import {
+  createMemberWorkflowRouter,
+  createOrganizationManagementRouter,
+  createTempleManagementRouter,
+} from './routes/organization-management.js';
 
 export interface AppDependencies {
   database: DatabaseHealth;
   authStore?: AuthStore;
   adminStore?: AdminStore;
   templeDirectory: PublicTempleDirectory;
+  organizationDirectory?: PublicOrganizationDirectory;
 }
 
 export function createApp(config: AppConfig, dependencies: AppDependencies) {
@@ -65,6 +73,20 @@ export function createApp(config: AppConfig, dependencies: AppDependencies) {
 
   if (dependencies.authStore) {
     app.use('/api/v1/auth', createAuthRouter(config, dependencies.authStore));
+    if (dependencies.adminStore) {
+      app.use(
+        '/api/v1/me',
+        createMemberWorkflowRouter(dependencies.authStore, dependencies.adminStore),
+      );
+      app.use(
+        '/api/v1/organizations',
+        createOrganizationManagementRouter(dependencies.authStore, dependencies.adminStore),
+      );
+      app.use(
+        '/api/v1/temples',
+        createTempleManagementRouter(dependencies.authStore, dependencies.adminStore),
+      );
+    }
     app.use('/api/v1/admin', createAdminRouter(dependencies.authStore, dependencies.adminStore));
     if (dependencies.adminStore) {
       app.use(
@@ -75,6 +97,9 @@ export function createApp(config: AppConfig, dependencies: AppDependencies) {
   }
   app.use('/api/v1/health', createHealthRouter(dependencies.database));
   app.use('/api/v1/temples', createTempleRouter(dependencies.templeDirectory));
+  if (dependencies.organizationDirectory) {
+    app.use('/api/v1/organizations', createOrganizationRouter(dependencies.organizationDirectory));
+  }
   app.use(notFound);
   app.use(errorHandler);
 

@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { correctionActionsForStatus, reportActionsForStatus } from '../../lib/admin-workflows';
 
 type Temple = {
   id: string;
@@ -20,6 +21,7 @@ type Report = {
   description: string;
   status: string;
   createdAt: string;
+  moderatorNotes?: string | null;
 };
 
 type Organization = {
@@ -33,9 +35,34 @@ type Organization = {
   publicationStatus: string;
 };
 
+type Claim = {
+  id: string;
+  requestedRole: string;
+  status: string;
+  applicantStatement: string;
+  submittedAt: string;
+  sourceUrl?: string | null;
+  applicant: { displayName: string; email: string | null };
+  organization: { id: string; name: string; slug: string; verificationStatus: string };
+};
+
+type Correction = {
+  id: string;
+  reasonCode: string;
+  description: string;
+  status: string;
+  submittedAt: string;
+  proposedChanges?: Record<string, string> | null;
+  sourceUrl?: string | null;
+  reviewerNotes?: string | null;
+  requester: { displayName: string; email: string | null };
+  organization: { id: string; name: string; slug: string } | null;
+  temple: { id: string; name: string; slug: string } | null;
+};
+
 type ListResponse<T> = {
   data: T[];
-  pagination: { total: number };
+  pagination: { page?: number; pageSize?: number; total: number; totalPages?: number };
 };
 
 type ErrorPayload = { error?: { message?: string; code?: string } };
@@ -58,6 +85,16 @@ function statusLabel(value: string) {
     .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 }
 
+function safeSourceUrl(value: string | null | undefined) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 function isAllowed(roles: string[], role: string) {
   return roles.includes('ADMIN') || roles.includes(role);
 }
@@ -68,7 +105,24 @@ export default function AdminDashboard() {
   const [temples, setTemples] = useState<Temple[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [corrections, setCorrections] = useState<Correction[]>([]);
   const [verificationFilter, setVerificationFilter] = useState('ALL');
+  const [reportFilter, setReportFilter] = useState('ALL');
+  const [claimFilter, setClaimFilter] = useState('ALL');
+  const [correctionFilter, setCorrectionFilter] = useState('ALL');
+  const [reportPage, setReportPage] = useState(1);
+  const [claimPage, setClaimPage] = useState(1);
+  const [correctionPage, setCorrectionPage] = useState(1);
+  const [reportPagination, setReportPagination] = useState<ListResponse<Report>['pagination']>({
+    total: 0,
+  });
+  const [claimPagination, setClaimPagination] = useState<ListResponse<Claim>['pagination']>({
+    total: 0,
+  });
+  const [correctionPagination, setCorrectionPagination] = useState<
+    ListResponse<Correction>['pagination']
+  >({ total: 0 });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [editingTempleId, setEditingTempleId] = useState<string | null>(null);
   const [editingOrganizationId, setEditingOrganizationId] = useState<string | null>(null);
@@ -76,6 +130,10 @@ export default function AdminDashboard() {
   const [organizationReviewNotes, setOrganizationReviewNotes] = useState<Record<string, string>>(
     {},
   );
+  const [reportResolutionCodes, setReportResolutionCodes] = useState<Record<string, string>>({});
+  const [reportNotes, setReportNotes] = useState<Record<string, string>>({});
+  const [claimNotes, setClaimNotes] = useState<Record<string, string>>({});
+  const [correctionNotes, setCorrectionNotes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -96,12 +154,40 @@ export default function AdminDashboard() {
       );
       setOrganizations(organizationResult.data);
       if (isAllowed(access.data.roles, 'MODERATOR')) {
+        const reportQuery = new URLSearchParams({ page: String(reportPage), pageSize: '25' });
+        if (reportFilter !== 'ALL') reportQuery.set('status', reportFilter);
         const reportResult = await readJson<ListResponse<Report>>(
-          '/api/admin/reports?page=1&pageSize=25',
+          `/api/admin/reports?${reportQuery.toString()}`,
         );
         setReports(reportResult.data);
+        setReportPagination(reportResult.pagination);
       } else {
         setReports([]);
+        setReportPagination({ total: 0 });
+      }
+      if (isAllowed(access.data.roles, 'VERIFIER')) {
+        const claimQuery = new URLSearchParams({ page: String(claimPage), pageSize: '25' });
+        if (claimFilter !== 'ALL') claimQuery.set('status', claimFilter);
+        const claimResult = await readJson<ListResponse<Claim>>(
+          `/api/admin/representative-claims?${claimQuery.toString()}`,
+        );
+        setClaims(claimResult.data);
+        setClaimPagination(claimResult.pagination);
+      } else {
+        setClaims([]);
+        setClaimPagination({ total: 0 });
+      }
+      if (isAllowed(access.data.roles, 'MODERATOR')) {
+        const query = new URLSearchParams({ page: String(correctionPage), pageSize: '25' });
+        if (correctionFilter !== 'ALL') query.set('status', correctionFilter);
+        const correctionResult = await readJson<ListResponse<Correction>>(
+          `/api/admin/corrections?${query.toString()}`,
+        );
+        setCorrections(correctionResult.data);
+        setCorrectionPagination(correctionResult.pagination);
+      } else {
+        setCorrections([]);
+        setCorrectionPagination({ total: 0 });
       }
     } catch (cause) {
       if (
@@ -117,7 +203,7 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [claimFilter, claimPage, correctionFilter, correctionPage, reportFilter, reportPage, router]);
 
   useEffect(() => {
     void load();
@@ -156,14 +242,38 @@ export default function AdminDashboard() {
   }
 
   async function changeReportState(id: string, status: string) {
+    const resolutionCode = reportResolutionCodes[id]?.trim();
+    if ((status === 'ACTIONED' || status === 'DISMISSED') && !resolutionCode) {
+      setError('Select a resolution for the report before closing it.');
+      return;
+    }
     setBusyId(id);
     setError(null);
+    setNotice(null);
     try {
       await readJson(`/api/admin/reports/${id}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({
+          status,
+          ...(resolutionCode && (status === 'ACTIONED' || status === 'DISMISSED')
+            ? { resolutionCode }
+            : {}),
+          ...(reportNotes[id]?.trim() ? { moderatorNotes: reportNotes[id].trim() } : {}),
+        }),
       });
+      if (status === 'OPEN') {
+        setReportResolutionCodes((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
+        setReportNotes((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
+      }
       setNotice('The report status was updated.');
       await load();
     } catch (cause) {
@@ -187,6 +297,78 @@ export default function AdminDashboard() {
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The organization could not be updated.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function changeOrganizationPublication(id: string, status: string) {
+    setBusyId(id);
+    setError(null);
+    setNotice(null);
+    try {
+      await readJson(`/api/admin/organizations/${id}/publication`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      setNotice('The organization publication state was updated and audited.');
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : 'The organization publication state could not be updated.',
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function decideClaim(id: string, status: string) {
+    if (status === 'REVOKED' && !window.confirm('Revoke this approved membership?')) return;
+    setBusyId(id);
+    setError(null);
+    try {
+      await readJson(`/api/admin/representative-claims/${id}/decision`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          status,
+          ...(claimNotes[id]?.trim() ? { notes: claimNotes[id].trim() } : {}),
+        }),
+      });
+      setNotice('The representative claim decision was recorded.');
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'The claim decision could not be recorded.',
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function decideCorrection(id: string, status: string) {
+    if (status === 'WITHDRAWN' && !window.confirm('Withdraw this correction request?')) return;
+    setBusyId(id);
+    setError(null);
+    setNotice(null);
+    try {
+      await readJson(`/api/admin/corrections/${id}/decision`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          status,
+          ...(correctionNotes[id]?.trim() ? { reviewerNotes: correctionNotes[id].trim() } : {}),
+        }),
+      });
+      setNotice('The correction decision was recorded.');
+      await load();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'The correction decision could not be recorded.',
+      );
     } finally {
       setBusyId(null);
     }
@@ -506,6 +688,25 @@ export default function AdminDashboard() {
                     </button>
                   </div>
                 ) : null}
+                {isAllowed(roles, 'CONTENT_EDITOR') &&
+                organization.verificationStatus === 'VERIFIED' ? (
+                  <div className="admin-card-actions">
+                    <button
+                      type="button"
+                      disabled={busyId === organization.id}
+                      onClick={() =>
+                        void changeOrganizationPublication(
+                          organization.id,
+                          organization.publicationStatus === 'PUBLISHED'
+                            ? 'UNPUBLISHED'
+                            : 'PUBLISHED',
+                        )
+                      }
+                    >
+                      {organization.publicationStatus === 'PUBLISHED' ? 'Unpublish' : 'Publish'}
+                    </button>
+                  </div>
+                ) : null}
                 {isAllowed(roles, 'VERIFIER') ? (
                   <div className="admin-review-note">
                     <label htmlFor={`organization-review-note-${organization.id}`}>
@@ -541,6 +742,276 @@ export default function AdminDashboard() {
         )}
       </section>
 
+      {isAllowed(roles, 'VERIFIER') ? (
+        <section className="admin-section" aria-labelledby="claims-title">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Ownership review</p>
+              <h2 id="claims-title">Representative requests</h2>
+            </div>
+            <div className="admin-actions">
+              <label className="filter-field" htmlFor="claim-filter">
+                Show
+              </label>
+              <select
+                id="claim-filter"
+                value={claimFilter}
+                onChange={(event) => {
+                  setClaimFilter(event.target.value);
+                  setClaimPage(1);
+                }}
+              >
+                <option value="ALL">All claim states</option>
+                <option value="PENDING">Pending</option>
+                <option value="NEEDS_MORE_INFO">Needs more info</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="REVOKED">Revoked</option>
+              </select>
+            </div>
+          </div>
+          {claims.length === 0 ? (
+            <p className="notice">There are no representative claims in this view.</p>
+          ) : (
+            <>
+              <div className="admin-card-list">
+                {claims.map((claim) => (
+                  <article className="admin-card" key={claim.id}>
+                    <div className="admin-card-main">
+                      <p className="eyebrow">
+                        {statusLabel(claim.status)} · {statusLabel(claim.requestedRole)} ·{' '}
+                        {new Date(claim.submittedAt).toLocaleDateString('en-IN')}
+                      </p>
+                      <h3>{claim.organization.name}</h3>
+                      <p>
+                        {claim.applicant.displayName} ·{' '}
+                        {claim.applicant.email ?? 'Email not supplied'}
+                      </p>
+                      <p className="muted">{claim.applicantStatement}</p>
+                      {safeSourceUrl(claim.sourceUrl) ? (
+                        <p>
+                          <a
+                            href={safeSourceUrl(claim.sourceUrl) ?? undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Open submitted source
+                          </a>
+                        </p>
+                      ) : null}
+                    </div>
+                    <span className={`status status-${claim.status.toLowerCase()}`}>
+                      {statusLabel(claim.status)}
+                    </span>
+                    {claim.status !== 'REJECTED' && claim.status !== 'REVOKED' ? (
+                      <div className="admin-card-actions">
+                        {claim.status === 'PENDING' || claim.status === 'NEEDS_MORE_INFO' ? (
+                          <button
+                            type="button"
+                            disabled={busyId === claim.id}
+                            onClick={() => void decideClaim(claim.id, 'APPROVED')}
+                          >
+                            Approve
+                          </button>
+                        ) : null}
+                        {claim.status === 'PENDING' ? (
+                          <button
+                            className="button-secondary"
+                            type="button"
+                            disabled={busyId === claim.id}
+                            onClick={() => void decideClaim(claim.id, 'NEEDS_MORE_INFO')}
+                          >
+                            Need more info
+                          </button>
+                        ) : null}
+                        {claim.status === 'PENDING' || claim.status === 'NEEDS_MORE_INFO' ? (
+                          <button
+                            className="button-danger"
+                            type="button"
+                            disabled={busyId === claim.id}
+                            onClick={() => void decideClaim(claim.id, 'REJECTED')}
+                          >
+                            Reject
+                          </button>
+                        ) : null}
+                        {claim.status === 'APPROVED' ? (
+                          <button
+                            className="button-danger"
+                            type="button"
+                            disabled={busyId === claim.id}
+                            onClick={() => void decideClaim(claim.id, 'REVOKED')}
+                          >
+                            Revoke membership
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {claim.status !== 'REJECTED' && claim.status !== 'REVOKED' ? (
+                      <div className="admin-review-note">
+                        <label htmlFor={`claim-note-${claim.id}`}>Decision note</label>
+                        <textarea
+                          id={`claim-note-${claim.id}`}
+                          maxLength={2000}
+                          value={claimNotes[claim.id] ?? ''}
+                          onChange={(event) =>
+                            setClaimNotes((current) => ({
+                              ...current,
+                              [claim.id]: event.target.value,
+                            }))
+                          }
+                          placeholder="Explain the decision for authorized reviewers"
+                        />
+                      </div>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+              <AdminPager
+                page={claimPage}
+                total={claimPagination.total}
+                totalPages={claimPagination.totalPages}
+                onChange={setClaimPage}
+              />
+            </>
+          )}
+        </section>
+      ) : null}
+
+      {isAllowed(roles, 'MODERATOR') ? (
+        <section className="admin-section" aria-labelledby="corrections-title">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Content quality</p>
+              <h2 id="corrections-title">Correction requests</h2>
+            </div>
+            <div className="admin-actions">
+              <label className="filter-field" htmlFor="correction-filter">
+                Show
+              </label>
+              <select
+                id="correction-filter"
+                value={correctionFilter}
+                onChange={(event) => {
+                  setCorrectionFilter(event.target.value);
+                  setCorrectionPage(1);
+                }}
+              >
+                <option value="ALL">All correction states</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="IN_REVIEW">In review</option>
+                <option value="NEEDS_CHANGES">Needs changes</option>
+                <option value="APPROVED">Approved</option>
+                <option value="REJECTED">Rejected</option>
+                <option value="WITHDRAWN">Withdrawn</option>
+              </select>
+            </div>
+          </div>
+          {corrections.length === 0 ? (
+            <p className="notice">There are no correction requests in this view.</p>
+          ) : (
+            <>
+              <p className="muted">
+                Accepting a suggestion records the decision only. It does not update public content
+                or verification; editors must make any separate content edit.
+              </p>
+              <div className="admin-card-list">
+                {corrections.map((correction) => {
+                  const target = correction.organization ?? correction.temple;
+                  return (
+                    <article className="admin-card" key={correction.id}>
+                      <div className="admin-card-main">
+                        <p className="eyebrow">
+                          {statusLabel(correction.reasonCode)} ·{' '}
+                          {target?.name ?? 'Target unavailable'}
+                        </p>
+                        <h3>{correction.description}</h3>
+                        <p className="muted">
+                          Submitted by {correction.requester.displayName} ·{' '}
+                          {new Date(correction.submittedAt).toLocaleDateString('en-IN')}
+                        </p>
+                        {correction.proposedChanges &&
+                        Object.keys(correction.proposedChanges).length ? (
+                          <div className="proposed-changes">
+                            <strong>Proposed changes</strong>
+                            <ul>
+                              {Object.entries(correction.proposedChanges).map(([key, value]) => (
+                                <li key={key}>
+                                  <span>{key}:</span> {value}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {safeSourceUrl(correction.sourceUrl) ? (
+                          <p>
+                            <a
+                              href={safeSourceUrl(correction.sourceUrl) ?? undefined}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open submitted source
+                            </a>
+                          </p>
+                        ) : null}
+                      </div>
+                      <span className={`status status-${correction.status.toLowerCase()}`}>
+                        {statusLabel(correction.status)}
+                      </span>
+                      {correctionActionsForStatus(correction.status).length > 0 ? (
+                        <div className="admin-card-actions">
+                          {correctionActionsForStatus(correction.status).map((action) => (
+                            <button
+                              className={
+                                action.variant === 'danger'
+                                  ? 'button-danger'
+                                  : action.variant === 'secondary'
+                                    ? 'button-secondary'
+                                    : undefined
+                              }
+                              key={action.status}
+                              type="button"
+                              disabled={busyId === correction.id}
+                              onClick={() => void decideCorrection(correction.id, action.status)}
+                            >
+                              {action.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      {correctionActionsForStatus(correction.status).some(
+                        (action) => action.status !== 'SUBMITTED',
+                      ) ? (
+                        <div className="admin-review-note">
+                          <label htmlFor={`correction-note-${correction.id}`}>Reviewer note</label>
+                          <textarea
+                            id={`correction-note-${correction.id}`}
+                            maxLength={2000}
+                            value={correctionNotes[correction.id] ?? ''}
+                            onChange={(event) =>
+                              setCorrectionNotes((current) => ({
+                                ...current,
+                                [correction.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="Explain the decision"
+                          />
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+              <AdminPager
+                page={correctionPage}
+                total={correctionPagination.total}
+                totalPages={correctionPagination.totalPages}
+                onChange={setCorrectionPage}
+              />
+            </>
+          )}
+        </section>
+      ) : null}
+
       {isAllowed(roles, 'MODERATOR') ? (
         <section className="admin-section" aria-labelledby="reports-title">
           <div className="section-heading">
@@ -548,54 +1019,144 @@ export default function AdminDashboard() {
               <p className="eyebrow">Trust and safety</p>
               <h2 id="reports-title">Community reports</h2>
             </div>
+            <div className="admin-actions">
+              <label className="filter-field" htmlFor="report-filter">
+                Show
+              </label>
+              <select
+                id="report-filter"
+                value={reportFilter}
+                onChange={(event) => {
+                  setReportFilter(event.target.value);
+                  setReportPage(1);
+                }}
+              >
+                <option value="ALL">All report states</option>
+                <option value="OPEN">Open</option>
+                <option value="IN_REVIEW">In review</option>
+                <option value="ACTIONED">Actioned</option>
+                <option value="DISMISSED">Dismissed</option>
+              </select>
+            </div>
           </div>
           {reports.length === 0 ? (
-            <p className="notice">There are no open reports in this view.</p>
+            <p className="notice">There are no reports in this view.</p>
           ) : (
-            <div className="admin-card-list">
-              {reports.map((report) => (
-                <article className="admin-card" key={report.id}>
-                  <div className="admin-card-main">
-                    <p className="eyebrow">
-                      {statusLabel(report.reasonCode)} ·{' '}
-                      {new Date(report.createdAt).toLocaleDateString()}
-                    </p>
-                    <h3>{report.description}</h3>
-                  </div>
-                  <span className={`status status-${report.status.toLowerCase()}`}>
-                    {statusLabel(report.status)}
-                  </span>
-                  <div className="admin-card-actions">
-                    <button
-                      type="button"
-                      disabled={busyId === report.id}
-                      onClick={() => void changeReportState(report.id, 'IN_REVIEW')}
-                    >
-                      Review
-                    </button>
-                    <button
-                      className="button-secondary"
-                      type="button"
-                      disabled={busyId === report.id}
-                      onClick={() => void changeReportState(report.id, 'DISMISSED')}
-                    >
-                      Dismiss
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyId === report.id}
-                      onClick={() => void changeReportState(report.id, 'ACTIONED')}
-                    >
-                      Actioned
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
+            <>
+              <div className="admin-card-list">
+                {reports.map((report) => (
+                  <article className="admin-card" key={report.id}>
+                    <div className="admin-card-main">
+                      <p className="eyebrow">
+                        {statusLabel(report.reasonCode)} ·{' '}
+                        {new Date(report.createdAt).toLocaleDateString()}
+                      </p>
+                      <h3>{report.description}</h3>
+                    </div>
+                    <span className={`status status-${report.status.toLowerCase()}`}>
+                      {statusLabel(report.status)}
+                    </span>
+                    {reportActionsForStatus(report.status).length > 0 ? (
+                      <div className="admin-card-actions">
+                        {reportActionsForStatus(report.status).map((action) => (
+                          <button
+                            className={
+                              action.variant === 'secondary' ? 'button-secondary' : undefined
+                            }
+                            key={action.status}
+                            type="button"
+                            disabled={busyId === report.id}
+                            onClick={() => void changeReportState(report.id, action.status)}
+                          >
+                            {action.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="admin-review-note">
+                      <label htmlFor={`report-resolution-${report.id}`}>
+                        Resolution when closing this report
+                      </label>
+                      <select
+                        id={`report-resolution-${report.id}`}
+                        value={reportResolutionCodes[report.id] ?? ''}
+                        onChange={(event) =>
+                          setReportResolutionCodes((current) => ({
+                            ...current,
+                            [report.id]: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Select a resolution</option>
+                        <option value="CONTENT_UPDATED">Content updated</option>
+                        <option value="DUPLICATE_CONFIRMED">Duplicate confirmed</option>
+                        <option value="NO_ACTION_REQUIRED">No action required</option>
+                        <option value="SPAM_REMOVED">Spam or abuse removed</option>
+                        <option value="OUT_OF_SCOPE">Outside moderation scope</option>
+                      </select>
+                      <label htmlFor={`report-note-${report.id}`}>Moderator note</label>
+                      <textarea
+                        id={`report-note-${report.id}`}
+                        maxLength={2000}
+                        value={reportNotes[report.id] ?? ''}
+                        onChange={(event) =>
+                          setReportNotes((current) => ({
+                            ...current,
+                            [report.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Explain the selected resolution"
+                      />
+                    </div>
+                  </article>
+                ))}
+              </div>
+              <AdminPager
+                page={reportPage}
+                total={reportPagination.total}
+                totalPages={reportPagination.totalPages}
+                onChange={setReportPage}
+              />
+            </>
           )}
         </section>
       ) : null}
     </main>
+  );
+}
+
+function AdminPager({
+  page,
+  total,
+  totalPages,
+  onChange,
+}: {
+  page: number;
+  total: number;
+  totalPages?: number;
+  onChange: (page: number) => void;
+}) {
+  const pages = totalPages ?? (total ? Math.ceil(total / 25) : 0);
+  if (pages <= 1) return null;
+  return (
+    <nav className="pagination" aria-label="Administration queue pages">
+      <span className="muted">
+        Page {page} of {pages}
+      </span>
+      <div>
+        <button
+          className="button-secondary"
+          type="button"
+          disabled={page <= 1}
+          onClick={() => onChange(page - 1)}
+        >
+          Previous
+        </button>{' '}
+        <button type="button" disabled={page >= pages} onClick={() => onChange(page + 1)}>
+          Next
+        </button>
+      </div>
+    </nav>
   );
 }
 

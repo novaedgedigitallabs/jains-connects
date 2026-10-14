@@ -4,13 +4,21 @@ import { PrismaAuthStore } from './auth/store.js';
 import { loadConfig } from './config/env.js';
 import { createDatabase } from './db/database.js';
 import { PrismaTempleDirectory } from './directories/temples.js';
+import { PrismaOrganizationDirectory } from './directories/organizations.js';
 
 const config = loadConfig();
 const database = createDatabase(config.databaseUrl);
 const authStore = new PrismaAuthStore(database.client);
 const adminStore = new PrismaAdminStore(database.client);
 const templeDirectory = new PrismaTempleDirectory(database.client);
-const app = createApp(config, { database, authStore, adminStore, templeDirectory });
+const organizationDirectory = new PrismaOrganizationDirectory(database.client);
+const app = createApp(config, {
+  database,
+  authStore,
+  adminStore,
+  templeDirectory,
+  organizationDirectory,
+});
 
 const server = app.listen(config.port, config.host, () => {
   console.info(

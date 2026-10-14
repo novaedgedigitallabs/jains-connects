@@ -127,6 +127,11 @@ export default async function TemplePage({ params }: PageProps) {
             <p>{temple.history}</p>
           </section>
         )}
+        <p className="detail-actions">
+          <Link className="text-link" href={`/temples/${temple.slug}/report`}>
+            Report incorrect information or suggest a correction
+          </Link>
+        </p>
       </div>
     </div>
   );

@@ -27,6 +27,13 @@ export default function HomePage() {
               Search published temple records with their available public details and review date.
             </p>
           </Link>
+          <Link className="quick-card" href="/organizations">
+            <h3>Find an organization</h3>
+            <p>
+              Explore verified Jain trusts, community groups, and charities with available public
+              details.
+            </p>
+          </Link>
           <div className="quick-card">
             <h3>Calendar and events</h3>
             <p>

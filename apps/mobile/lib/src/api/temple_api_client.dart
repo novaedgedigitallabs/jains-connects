@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../config/app_config.dart';
 import '../models/public_temple.dart';
 
 class TempleApiException implements Exception {
@@ -16,14 +18,14 @@ class TempleApiException implements Exception {
 
 class TempleApiClient {
   TempleApiClient({required Uri baseUrl, http.Client? httpClient})
-    : _baseUrl = baseUrl,
+    : _baseUrl = ApiBaseUrl.fromUri(baseUrl),
       _httpClient = httpClient ?? http.Client();
 
   factory TempleApiClient.fromBaseUrl(Uri baseUrl) {
     return TempleApiClient(baseUrl: baseUrl);
   }
 
-  final Uri _baseUrl;
+  final ApiBaseUrl _baseUrl;
   final http.Client _httpClient;
 
   Future<TemplePage> fetchTemples({
@@ -47,9 +49,24 @@ class TempleApiClient {
     String path,
     Map<String, String> parameters,
   ) async {
-    final response = await _httpClient
-        .get(_endpoint(path, parameters))
-        .timeout(const Duration(seconds: 10));
+    late final http.Response response;
+    try {
+      response = await _httpClient
+          .get(_endpoint(path, parameters))
+          .timeout(const Duration(seconds: 10));
+    } on TimeoutException {
+      throw const TempleApiException(
+        'The temple directory took too long to respond. Please check your connection and try again.',
+      );
+    } on SocketException {
+      throw const TempleApiException(
+        'The temple directory could not be reached. Please check your connection and try again.',
+      );
+    } on http.ClientException {
+      throw const TempleApiException(
+        'The temple directory could not be reached. Please try again.',
+      );
+    }
 
     if (response.statusCode != 200) {
       throw const TempleApiException(
@@ -57,7 +74,14 @@ class TempleApiClient {
       );
     }
 
-    final decoded = jsonDecode(response.body);
+    late final Object? decoded;
+    try {
+      decoded = jsonDecode(response.body);
+    } on FormatException {
+      throw const TempleApiException(
+        'The temple directory returned an invalid response.',
+      );
+    }
     if (decoded is! Map<String, dynamic>) {
       throw const TempleApiException(
         'The temple directory returned an invalid response.',
@@ -67,11 +91,11 @@ class TempleApiClient {
   }
 
   Uri _endpoint(String path, Map<String, String> parameters) {
-    final basePath = _baseUrl.path.endsWith('/')
-        ? _baseUrl.path
-        : '${_baseUrl.path}/';
+    final basePath = _baseUrl.uri.path.endsWith('/')
+        ? _baseUrl.uri.path
+        : '${_baseUrl.uri.path}/';
     final relativePath = path.startsWith('/') ? path.substring(1) : path;
-    return _baseUrl.replace(
+    return _baseUrl.uri.replace(
       path: '$basePath$relativePath',
       queryParameters: parameters,
     );

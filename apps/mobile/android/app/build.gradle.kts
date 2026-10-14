@@ -5,6 +5,22 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+fun configuredReleaseValue(name: String): String? {
+    return providers.gradleProperty(name).orNull?.takeIf { it.isNotBlank() }
+        ?: providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
+}
+
+val releaseStoreFilePath = configuredReleaseValue("JAINCONNECT_RELEASE_STORE_FILE")
+val releaseStorePassword = configuredReleaseValue("JAINCONNECT_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = configuredReleaseValue("JAINCONNECT_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = configuredReleaseValue("JAINCONNECT_RELEASE_KEY_PASSWORD")
+val hasCompleteReleaseSigning = listOf(
+    releaseStoreFilePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { it != null }
+
 android {
     namespace = "com.novaedge.jainconnect"
     compileSdk = flutter.compileSdkVersion
@@ -30,12 +46,46 @@ android {
         versionName = flutter.versionName
     }
 
+    if (hasCompleteReleaseSigning) {
+        signingConfigs {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFilePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            if (hasCompleteReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
+    }
+}
+
+gradle.taskGraph.whenReady {
+    val releaseTaskRequested = allTasks.any { task ->
+        task.name.contains("Release", ignoreCase = true)
+    }
+    if (!releaseTaskRequested) return@whenReady
+
+    if (!hasCompleteReleaseSigning) {
+        throw GradleException(
+            "Release signing is not configured. Set JAINCONNECT_RELEASE_STORE_FILE, " +
+                "JAINCONNECT_RELEASE_STORE_PASSWORD, JAINCONNECT_RELEASE_KEY_ALIAS, " +
+                "and JAINCONNECT_RELEASE_KEY_PASSWORD via Gradle properties or the " +
+                "environment before building a release. Debug signing is not allowed.",
+        )
+    }
+
+    val storeFile = rootProject.file(releaseStoreFilePath!!)
+    if (!storeFile.isFile) {
+        throw GradleException(
+            "The configured JainConnect release keystore does not exist: ${storeFile.path}",
+        )
     }
 }
 

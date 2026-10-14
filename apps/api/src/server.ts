@@ -5,6 +5,7 @@ import { loadConfig } from './config/env.js';
 import { createDatabase } from './db/database.js';
 import { PrismaTempleDirectory } from './directories/temples.js';
 import { PrismaOrganizationDirectory } from './directories/organizations.js';
+import { createEmailProvider } from './email/provider.js';
 
 const config = loadConfig();
 const database = createDatabase(config.databaseUrl);
@@ -12,10 +13,12 @@ const authStore = new PrismaAuthStore(database.client);
 const adminStore = new PrismaAdminStore(database.client);
 const templeDirectory = new PrismaTempleDirectory(database.client);
 const organizationDirectory = new PrismaOrganizationDirectory(database.client);
+const emailProvider = createEmailProvider(config);
 const app = createApp(config, {
   database,
   authStore,
   adminStore,
+  emailProvider,
   templeDirectory,
   organizationDirectory,
 });

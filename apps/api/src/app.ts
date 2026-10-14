@@ -10,6 +10,8 @@ import type { PublicTempleDirectory } from './directories/temples.js';
 import type { PublicOrganizationDirectory } from './directories/organizations.js';
 import { errorHandler, notFound } from './http/errors.js';
 import { requestId } from './http/request-id.js';
+import type { EmailProvider } from './email/provider.js';
+import { NoopEmailProvider } from './email/provider.js';
 import { createHealthRouter } from './routes/health.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createAdminRouter, createReportRouter } from './routes/admin.js';
@@ -25,6 +27,7 @@ export interface AppDependencies {
   database: DatabaseHealth;
   authStore?: AuthStore;
   adminStore?: AdminStore;
+  emailProvider?: EmailProvider;
   templeDirectory: PublicTempleDirectory;
   organizationDirectory?: PublicOrganizationDirectory;
 }
@@ -72,7 +75,14 @@ export function createApp(config: AppConfig, dependencies: AppDependencies) {
   app.use(express.json({ limit: '100kb' }));
 
   if (dependencies.authStore) {
-    app.use('/api/v1/auth', createAuthRouter(config, dependencies.authStore));
+    app.use(
+      '/api/v1/auth',
+      createAuthRouter(
+        config,
+        dependencies.authStore,
+        dependencies.emailProvider ?? new NoopEmailProvider(),
+      ),
+    );
     if (dependencies.adminStore) {
       app.use(
         '/api/v1/me',

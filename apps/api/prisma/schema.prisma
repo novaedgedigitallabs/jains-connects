@@ -129,6 +129,10 @@ model User {
   reviewedRepresentativeClaims OrganizationRepresentativeClaim[] @relation("RepresentativeClaimReviewer")
   correctionRequests CorrectionRequest[] @relation("CorrectionRequester")
   reviewedCorrections CorrectionRequest[] @relation("CorrectionReviewer")
+  verificationTokens  EmailVerificationToken[]
+  passwordResetTokens PasswordResetToken[]
+  mfaCredential       MfaCredential?
+  mfaRecoveryCodes    MfaRecoveryCode[]
 
   @@index([status, createdAt])
 }
@@ -155,9 +159,68 @@ model Session {
   revokedAt DateTime? @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @db.Timestamptz(6)
   lastUsedAt DateTime? @db.Timestamptz(6)
+  // Set once the session holder completes a TOTP/recovery-code challenge.
+  // Privileged (staff) routes reject sessions whose value is null.
+  mfaVerifiedAt DateTime? @db.Timestamptz(6)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt, expiresAt])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique @db.VarChar(128)
+  expiresAt DateTime  @db.Timestamptz(6)
+  usedAt    DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique @db.VarChar(128)
+  expiresAt DateTime  @db.Timestamptz(6)
+  usedAt    DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// TOTP credential for a user. The shared secret is encrypted at rest with
+/// AES-256-GCM using MFA_ENCRYPTION_KEY; only ciphertext, IV, and auth tag
+/// are persisted. A credential is usable only after activation (first valid
+/// code confirmed during enrollment).
+model MfaCredential {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String    @unique @db.Uuid
+  secretCipher   Bytes
+  secretIv       Bytes
+  secretTag      Bytes
+  enabled        Boolean   @default(false)
+  activatedAt    DateTime? @db.Timestamptz(6)
+  lastVerifiedAt DateTime? @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([enabled])
+}
+/// Single-use MFA recovery codes, stored only as SHA-256 hashes.
+model MfaRecoveryCode {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @db.Uuid
+  codeHash  String    @unique @db.VarChar(128)
+  usedAt    DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Role {

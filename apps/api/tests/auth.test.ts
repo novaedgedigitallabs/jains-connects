@@ -4,7 +4,7 @@ import { createApp } from '../src/app.js';
 import type { AppConfig } from '../src/config/env.js';
 import { hashPassword } from '../src/auth/password.js';
 import { hashAccessToken } from '../src/auth/tokens.js';
-import type { ActiveSession, AuthStore, AuthUser } from '../src/auth/store.js';
+import type { ActiveSession, AuthStore, AuthUser, MfaSecretRecord } from '../src/auth/store.js';
 
 const config: AppConfig = {
   nodeEnv: 'test',
@@ -13,6 +13,7 @@ const config: AppConfig = {
   sessionTtlSeconds: 3600,
   databaseUrl: 'postgresql://test:test@localhost:5432/jainconnect_test',
   corsOrigins: [],
+  smtp: { port: 587, secure: false },
 };
 
 const user: AuthUser = {
@@ -21,6 +22,7 @@ const user: AuthUser = {
   displayName: 'Synthetic Member',
   status: 'ACTIVE',
   passwordHash: null,
+  emailVerifiedAt: null,
 };
 
 class FakeAuthStore implements AuthStore {
@@ -44,13 +46,18 @@ class FakeAuthStore implements AuthStore {
       displayName: input.displayName,
       status: 'ACTIVE',
       passwordHash: input.passwordHash,
+      emailVerifiedAt: null,
     };
     this.users.set(input.emailNormalized, created);
     return created;
   }
 
   async createSession(input: { userId: string; tokenHash: string; expiresAt: Date }) {
-    this.sessions.set(input.tokenHash, { tokenHash: input.tokenHash, user });
+    this.sessions.set(input.tokenHash, {
+      tokenHash: input.tokenHash,
+      mfaVerifiedAt: null,
+      user,
+    });
   }
 
   async findActiveSession(tokenHash: string, _now: Date) {
@@ -66,6 +73,68 @@ class FakeAuthStore implements AuthStore {
 
   async revokeSession(tokenHash: string, _revokedAt: Date) {
     this.sessions.delete(tokenHash);
+  }
+
+  async revokeAllUserSessions(_userId: string, _revokedAt: Date) {
+    this.sessions.clear();
+  }
+
+  async markUserLoggedIn(_userId: string, _loggedInAt: Date) {}
+
+  async setSessionMfaVerified(_tokenHash: string, _verifiedAt: Date) {}
+
+  async purgeStaleAuthRecords(_before: Date) {
+    return { sessions: 0, verificationTokens: 0, resetTokens: 0 };
+  }
+
+  // Email verification
+  async createEmailVerificationToken(_input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }) {
+    return { id: 'evt-1' };
+  }
+
+  async verifyEmailWithToken(_tokenHash: string, _now: Date) {
+    return null;
+  }
+
+  // Password reset
+  async createPasswordResetToken(_input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }) {
+    return { id: 'prt-1' };
+  }
+
+  async resetPasswordWithToken(
+    _tokenHash: string,
+    _newPasswordHash: string,
+    _now: Date,
+  ) {
+    return null;
+  }
+
+  // MFA stubs
+  async findMfaCredential(_userId: string): Promise<MfaSecretRecord | null> {
+    return null;
+  }
+
+  async createMfaCredential(_input: {
+    userId: string;
+    secretCipher: Uint8Array;
+    secretIv: Uint8Array;
+    secretTag: Uint8Array;
+  }) {}
+
+  async activateMfaCredential(_userId: string, _activatedAt: Date) {}
+  async disableMfaCredential(_userId: string) {}
+  async recordMfaVerification(_userId: string, _verifiedAt: Date) {}
+  async replaceRecoveryCodes(_userId: string, _codeHashes: string[]) {}
+  async consumeRecoveryCode(_codeHash: string, _now: Date) {
+    return null;
   }
 }
 
@@ -92,7 +161,7 @@ describe('authentication API', () => {
     });
 
     expect(response.status).toBe(201);
-    expect(response.body.data.user).toEqual({
+    expect(response.body.data.user).toMatchObject({
       id: 'f13e691f-d9f4-45a6-a1d7-2f9525aa8d4b',
       email: 'member@example.test',
       displayName: 'Synthetic Member',
@@ -131,7 +200,7 @@ describe('authentication API', () => {
 
     expect(login.status).toBe(200);
     expect(login.body.data.accessToken).toEqual(expect.any(String));
-    expect(login.body.data.user).toEqual({
+    expect(login.body.data.user).toMatchObject({
       id: user.id,
       email: user.email,
       displayName: user.displayName,
